@@ -85,7 +85,10 @@ describe('codex-wrapper jsonl state machine', () => {
             item: {
               type: 'agent_message',
               message: {
-                content: [{ type: 'text', text: 'hello ' }, { type: 'text', text: 'world' }],
+                content: [
+                  { type: 'text', text: 'hello ' },
+                  { type: 'text', text: 'world' },
+                ],
               },
             },
           }),
@@ -103,7 +106,9 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
     expect(result.exitCode).toBe(0);
     expect(result.output.status).toBe('success');
@@ -131,11 +136,15 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
     expect(result.output.status).toBe('error');
     expect(result.output.message).toBe('NO_AGENT_MESSAGE');
-    expect(result.output.warnings?.some((w) => w.code === 'NO_AGENT_MESSAGE')).toBe(true);
+    expect(
+      result.output.warnings?.some((w) => w.code === 'NO_AGENT_MESSAGE'),
+    ).toBe(true);
   });
 
   it('returns THREAD_ID_MISSING when no thread.started is seen', async () => {
@@ -145,7 +154,10 @@ describe('codex-wrapper jsonl state machine', () => {
           JSON.stringify({ type: 'turn.completed' }),
           JSON.stringify({
             type: 'item.completed',
-            item: { type: 'agent_message', message: { content: [{ type: 'text', text: 'x' }] } },
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'x' }] },
+            },
           }),
         ],
       },
@@ -161,7 +173,9 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
     expect(result.output.status).toBe('error');
     expect(result.output.message).toBe('THREAD_ID_MISSING');
@@ -182,7 +196,10 @@ describe('codex-wrapper jsonl state machine', () => {
           JSON.stringify({ type: 'thread.started', thread_id: 'new-thread' }),
           JSON.stringify({
             type: 'item.completed',
-            item: { type: 'agent_message', message: { content: [{ type: 'text', text: 'ok' }] } },
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'ok' }] },
+            },
           }),
           JSON.stringify({ type: 'turn.completed' }),
         ],
@@ -200,11 +217,15 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
     expect(result.output.status).toBe('success');
     expect(result.output.newSessionId).toBe('new-thread');
-    const warn = result.output.warnings?.find((w) => w.code === 'SESSION_RESUME_FAILED');
+    const warn = result.output.warnings?.find(
+      (w) => w.code === 'SESSION_RESUME_FAILED',
+    );
     expect(warn?.meta?.oldSessionId).toBe('old-session');
     expect(warn?.meta?.newSessionId).toBe('new-thread');
     expect(warn?.meta?.group).toBe('group-b');
@@ -232,7 +253,9 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
     expect(result.output.status).toBe('error');
     expect(result.output.message).toBe('JSONL_PARSE_ERROR');
@@ -261,9 +284,13 @@ describe('codex-wrapper jsonl state machine', () => {
       }),
     );
 
-    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: spawnFn as never,
+    });
 
-    const stderrWarn = result.output.warnings?.find((w) => w.code === 'STDERR_TAIL');
+    const stderrWarn = result.output.warnings?.find(
+      (w) => w.code === 'STDERR_TAIL',
+    );
     expect(stderrWarn?.meta?.stderr_tail).toContain('[REDACTED]');
     expect(stderrWarn?.meta?.stderr_tail).not.toContain('abc123');
     expect(stderrWarn?.meta?.stderr_tail).not.toContain('sk-super-secret');

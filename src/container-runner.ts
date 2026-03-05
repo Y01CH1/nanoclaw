@@ -229,7 +229,10 @@ function getAgentBackend(): AgentBackend {
   const raw = process.env.AGENT_BACKEND?.trim().toLowerCase();
   if (!raw || raw === 'codex') return 'codex';
   if (raw === 'claude') return 'claude';
-  logger.warn({ value: raw }, 'Invalid AGENT_BACKEND value, defaulting to codex');
+  logger.warn(
+    { value: raw },
+    'Invalid AGENT_BACKEND value, defaulting to codex',
+  );
   return 'codex';
 }
 
