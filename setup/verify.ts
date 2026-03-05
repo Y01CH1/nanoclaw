@@ -22,10 +22,26 @@ import {
 } from './platform.js';
 import { emitStatus } from './status.js';
 
-export function detectCredentialStatus(envContent: string): {
+export type CredentialStatus =
+  | 'configured'
+  | 'configured_pending_seed'
+  | 'deprecated_config'
+  | 'missing';
+
+export type CredentialSource =
+  | 'codex'
+  | 'openai'
+  | 'codex_auth_file'
+  | 'anthropic'
+  | 'claude_code'
+  | 'none';
+
+type EnvCredentialStatus = {
   status: 'configured' | 'deprecated_config' | 'missing';
   source: 'codex' | 'openai' | 'anthropic' | 'claude_code' | 'none';
-} {
+};
+
+export function detectCredentialStatus(envContent: string): EnvCredentialStatus {
   const hasCodex = /^CODEX_API_KEY=/m.test(envContent);
   const hasOpenAI = /^OPENAI_API_KEY=/m.test(envContent);
   const hasAnthropic = /^ANTHROPIC_[A-Z0-9_]+=|^ANTHROPIC_API_KEY=/m.test(
@@ -39,6 +55,48 @@ export function detectCredentialStatus(envContent: string): {
   if (hasClaudeCode)
     return { status: 'deprecated_config', source: 'claude_code' };
   return { status: 'missing', source: 'none' };
+}
+
+export function resolveCredentialStatus(
+  detected: EnvCredentialStatus,
+  opts: { hasMainGroupAuthFile: boolean; hasHostAuthFile: boolean },
+): { status: CredentialStatus; source: CredentialSource } {
+  if (detected.status === 'configured') {
+    return { status: 'configured', source: detected.source };
+  }
+  if (opts.hasMainGroupAuthFile) {
+    return { status: 'configured', source: 'codex_auth_file' };
+  }
+  if (opts.hasHostAuthFile) {
+    return { status: 'configured_pending_seed', source: 'codex_auth_file' };
+  }
+  if (detected.status === 'deprecated_config') {
+    return { status: 'deprecated_config', source: detected.source };
+  }
+  return { status: 'missing', source: 'none' };
+}
+
+export function isCredentialStatusAllowedForBackend(
+  backend: 'codex' | 'claude',
+  status: CredentialStatus,
+): boolean {
+  if (backend === 'claude') {
+    return (
+      status === 'configured' ||
+      status === 'configured_pending_seed' ||
+      status === 'deprecated_config'
+    );
+  }
+  return status === 'configured' || status === 'configured_pending_seed';
+}
+
+function hasSafeAuthFile(filePath: string): boolean {
+  try {
+    const stat = fs.lstatSync(filePath);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 export async function run(_args: string[]): Promise<void> {
@@ -116,14 +174,39 @@ export async function run(_args: string[]): Promise<void> {
   }
 
   // 3. Check credentials
-  let credentials = 'missing';
-  let credentialSource = 'none';
+  let credentials: CredentialStatus = 'missing';
+  let credentialSource: CredentialSource = 'none';
+  let credentialWarning = '';
   const envFile = path.join(projectRoot, '.env');
+  const mainGroupAuthPath = path.join(
+    projectRoot,
+    'data',
+    'sessions',
+    'main',
+    '.codex',
+    'auth.json',
+  );
+  const hostAuthPath = path.join(homeDir, '.codex', 'auth.json');
+  const hasMainGroupAuthFile = hasSafeAuthFile(mainGroupAuthPath);
+  const hasHostAuthFile = hasSafeAuthFile(hostAuthPath);
+
+  let detectedEnvStatus: EnvCredentialStatus = {
+    status: 'missing',
+    source: 'none',
+  };
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    const detected = detectCredentialStatus(envContent);
-    credentials = detected.status;
-    credentialSource = detected.source;
+    detectedEnvStatus = detectCredentialStatus(envContent);
+  }
+  const resolved = resolveCredentialStatus(detectedEnvStatus, {
+    hasMainGroupAuthFile,
+    hasHostAuthFile,
+  });
+  credentials = resolved.status;
+  credentialSource = resolved.source;
+
+  if (!hasHostAuthFile && fs.existsSync(path.join(homeDir, '.codex'))) {
+    credentialWarning = 'CODEX_AUTH_KEYRING_UNSUPPORTED';
   }
 
   // 4. Check channel auth (detect configured channels by credentials)
@@ -186,9 +269,13 @@ export async function run(_args: string[]): Promise<void> {
   }
 
   // Determine overall status
+  const backend =
+    process.env.AGENT_BACKEND?.trim().toLowerCase() === 'claude'
+      ? 'claude'
+      : 'codex';
   const status =
     service === 'running' &&
-    credentials !== 'missing' &&
+    isCredentialStatusAllowedForBackend(backend, credentials) &&
     anyChannelConfigured &&
     registeredGroups > 0
       ? 'success'
@@ -201,6 +288,7 @@ export async function run(_args: string[]): Promise<void> {
     CONTAINER_RUNTIME: containerRuntime,
     CREDENTIALS: credentials,
     CREDENTIAL_SOURCE: credentialSource,
+    CREDENTIAL_WARNING: credentialWarning,
     CONFIGURED_CHANNELS: configuredChannels.join(','),
     CHANNEL_AUTH: JSON.stringify(channelAuth),
     REGISTERED_GROUPS: registeredGroups,
