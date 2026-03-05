@@ -470,6 +470,7 @@ describe('container-runner timeout behavior', () => {
   });
 
   it('fails fast before spawn when codex credentials are missing', async () => {
+    vi.stubEnv('AGENT_BACKEND', 'codex');
     mockReadEnvFile.mockReturnValue({});
 
     const { spawn } = await import('child_process');
@@ -484,6 +485,7 @@ describe('container-runner timeout behavior', () => {
   });
 
   it('treats legacy-only credentials as missing in codex backend', async () => {
+    vi.stubEnv('AGENT_BACKEND', 'codex');
     mockReadEnvFile.mockReturnValue({
       ANTHROPIC_API_KEY: 'legacy-only',
     });
