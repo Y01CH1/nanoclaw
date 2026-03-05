@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -29,6 +30,11 @@ import { RegisteredGroup } from './types.js';
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const SEED_LOCK_FILE_NAME = '.seed.lock';
+const SEED_LOCK_STALE_MS = 30_000;
+const SEED_LOCK_RETRY_COUNT = 10;
+const SEED_LOCK_RETRY_MS = 100;
+const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 
 export interface ContainerInput {
   prompt: string;
@@ -185,6 +191,7 @@ function buildVolumeMounts(
     '.codex',
   );
   fs.mkdirSync(groupCodexSessionsDir, { recursive: true });
+  seedCodexAuthIfNeeded(group.folder);
   mounts.push({
     hostPath: groupCodexSessionsDir,
     containerPath: '/home/node/.codex',
@@ -262,7 +269,9 @@ function readSecrets(): Record<string, string> {
   ]);
 }
 
-function resolveCodexCredentialSource(groupFolder: string): CodexCredentialSource {
+function resolveCodexCredentialSource(
+  groupFolder: string,
+): CodexCredentialSource {
   const secrets = readSecrets();
   if (secrets.CODEX_API_KEY) return 'codex_key';
   if (secrets.OPENAI_API_KEY) return 'openai_key';
@@ -276,6 +285,138 @@ function resolveCodexCredentialSource(groupFolder: string): CodexCredentialSourc
   );
   if (fs.existsSync(authPath)) return 'codex_auth_file';
   return 'none';
+}
+
+function sleepMs(ms: number): void {
+  Atomics.wait(SLEEP_BUF, 0, 0, ms);
+}
+
+function acquireSeedLock(lockPath: string): number | null {
+  for (let attempt = 0; attempt <= SEED_LOCK_RETRY_COUNT; attempt += 1) {
+    try {
+      return fs.openSync(lockPath, 'wx', 0o600);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') return null;
+
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > SEED_LOCK_STALE_MS) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        // Lock disappeared or became unreadable between attempts.
+      }
+
+      if (attempt < SEED_LOCK_RETRY_COUNT) {
+        sleepMs(SEED_LOCK_RETRY_MS);
+      }
+    }
+  }
+
+  return null;
+}
+
+function releaseSeedLock(lockPath: string, fd: number): void {
+  try {
+    fs.closeSync(fd);
+  } catch {
+    // Ignore close errors.
+  }
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // Ignore unlink errors.
+  }
+}
+
+function validateSeedSource(sourcePath: string, sourceRoot: string): boolean {
+  const sourceResolved = path.resolve(sourcePath);
+  if (
+    sourceResolved !== sourceRoot &&
+    !sourceResolved.startsWith(`${sourceRoot}${path.sep}`)
+  ) {
+    return false;
+  }
+
+  try {
+    const st = fs.lstatSync(sourceResolved);
+    return st.isFile() && !st.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function seedFileIfMissing(
+  sourcePath: string,
+  destPath: string,
+  sourceRoot: string,
+): boolean {
+  if (!validateSeedSource(sourcePath, sourceRoot)) return false;
+  if (fs.existsSync(destPath)) return false;
+
+  const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    const content = fs.readFileSync(sourcePath);
+    fs.writeFileSync(tmpPath, content, { mode: 0o600 });
+    fs.renameSync(tmpPath, destPath);
+    fs.chmodSync(destPath, 0o600);
+    return true;
+  } catch {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Ignore tmp cleanup failures.
+    }
+    return false;
+  }
+}
+
+function seedCodexAuthIfNeeded(groupFolder: string): void {
+  const hostCodexDir = path.resolve(process.env.HOME || os.homedir(), '.codex');
+  const hostAuthPath = path.join(hostCodexDir, 'auth.json');
+  const groupCodexDir = path.join(DATA_DIR, 'sessions', groupFolder, '.codex');
+  const groupAuthPath = path.join(groupCodexDir, 'auth.json');
+
+  if (!fs.existsSync(hostAuthPath) || fs.existsSync(groupAuthPath)) return;
+
+  const lockPath = path.join(groupCodexDir, SEED_LOCK_FILE_NAME);
+  const lockFd = acquireSeedLock(lockPath);
+  if (lockFd == null) {
+    logger.warn(
+      { group: groupFolder },
+      'CODEX_AUTH_SEED_FAILED: unable to acquire seed lock',
+    );
+    return;
+  }
+
+  try {
+    if (fs.existsSync(groupAuthPath)) return;
+
+    const copiedAuth = seedFileIfMissing(
+      hostAuthPath,
+      groupAuthPath,
+      hostCodexDir,
+    );
+    if (!copiedAuth) {
+      logger.warn(
+        { group: groupFolder },
+        'CODEX_AUTH_SEED_FAILED: auth.json unavailable or invalid',
+      );
+      return;
+    }
+
+    const hostConfigPath = path.join(hostCodexDir, 'config.toml');
+    const groupConfigPath = path.join(groupCodexDir, 'config.toml');
+    if (fs.existsSync(hostConfigPath)) {
+      seedFileIfMissing(hostConfigPath, groupConfigPath, hostCodexDir);
+    }
+
+    logger.info({ group: groupFolder }, 'CODEX_AUTH_SEEDED');
+  } finally {
+    releaseSeedLock(lockPath, lockFd);
+  }
 }
 
 function getAgentBackend(): AgentBackend {
@@ -408,9 +549,7 @@ export async function runContainerAgent(
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const backend = getAgentBackend();
   const credentialSource =
-    backend === 'codex'
-      ? resolveCodexCredentialSource(group.folder)
-      : 'legacy';
+    backend === 'codex' ? resolveCodexCredentialSource(group.folder) : 'legacy';
   const containerArgs = buildContainerArgs(mounts, containerName, backend);
 
   logger.debug(

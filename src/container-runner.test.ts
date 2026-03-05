@@ -40,9 +40,19 @@ vi.mock('fs', async () => {
       writeFileSync: vi.fn(),
       readFileSync: vi.fn(() => ''),
       readdirSync: vi.fn(() => []),
-      statSync: vi.fn(() => ({ isDirectory: () => false })),
+      statSync: vi.fn(() => ({ isDirectory: () => false, mtimeMs: Date.now() })),
+      lstatSync: vi.fn(() => ({
+        isDirectory: () => false,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+      })),
       cpSync: vi.fn(),
       copyFileSync: vi.fn(),
+      openSync: vi.fn(() => 99),
+      closeSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      renameSync: vi.fn(),
+      chmodSync: vi.fn(),
     },
   };
 });
@@ -374,5 +384,68 @@ describe('container-runner timeout behavior', () => {
     };
     expect(parsedInput.secrets?.CODEX_API_KEY).toBe('codex-test-key');
     expect(parsedInput.secrets?.OPENAI_API_KEY).toBe('openai-test-key');
+  });
+
+  it('seeds group .codex auth.json from host auth when missing', async () => {
+    const existsSyncMock = vi.mocked(fs.existsSync);
+    const readFileSyncMock = vi.mocked(fs.readFileSync);
+    const writeFileSyncMock = vi.mocked(fs.writeFileSync);
+    const renameSyncMock = vi.mocked(fs.renameSync);
+    const openSyncMock = vi.mocked(fs.openSync);
+
+    let groupAuthExists = false;
+    existsSyncMock.mockImplementation((p: PathLike) => {
+      const str = String(p);
+      if (str.endsWith('/.codex/auth.json')) {
+        if (str.includes('/tmp/nanoclaw-test-data/sessions/test-group/')) {
+          return groupAuthExists;
+        }
+        if (str.includes('/.codex/auth.json')) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    readFileSyncMock.mockImplementation((p: PathLike) => {
+      const str = String(p);
+      if (str.endsWith('/.codex/auth.json')) return Buffer.from('{"token":"x"}');
+      return '';
+    });
+
+    renameSyncMock.mockImplementation((_tmp, dest) => {
+      if (String(dest).includes('/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json')) {
+        groupAuthExists = true;
+      }
+    });
+
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'seeded',
+      newSessionId: 'session-seed-auth',
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+    expect(openSyncMock).toHaveBeenCalledWith(
+      '/tmp/nanoclaw-test-data/sessions/test-group/.codex/.seed.lock',
+      'wx',
+      0o600,
+    );
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json.tmp-',
+      ),
+      expect.anything(),
+      expect.objectContaining({ mode: 0o600 }),
+    );
+    expect(renameSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('.tmp-'),
+      '/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json',
+    );
   });
 });
