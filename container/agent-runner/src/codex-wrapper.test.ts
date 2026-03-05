@@ -22,8 +22,10 @@ type SpawnReturn = EventEmitter & {
 
 function createSpawnMock(scenarios: Scenario[]) {
   let call = 0;
+  const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
 
-  return () => {
+  const fn = (command: string, args: string[], options: { cwd: string }) => {
+    calls.push({ command, args, cwd: options.cwd });
     const scenario = scenarios[call++];
     if (!scenario) throw new Error('No scenario configured');
 
@@ -46,6 +48,8 @@ function createSpawnMock(scenarios: Scenario[]) {
 
     return proc;
   };
+
+  return Object.assign(fn, { calls });
 }
 
 describe('codex-wrapper input guards', () => {
@@ -70,6 +74,22 @@ describe('codex-wrapper input guards', () => {
     expect(result.output.status).toBe('error');
     expect(result.output.message).toBe('INPUT_JSON_PARSE_ERROR');
     expect(result.output.warnings?.[0]?.code).toBe('INPUT_JSON_PARSE_ERROR');
+  });
+
+  it('returns structured error when stdin exceeds 1MB', async () => {
+    const input = new PassThrough();
+    input.end(Buffer.alloc(MAX_STDIN_BYTES + 2, 'x'));
+
+    const result = await runWrapperFromStdin(input, {
+      spawnFn: createSpawnMock([]) as never,
+    });
+
+    expect(result.output.status).toBe('error');
+    expect(result.output.message).toBe('INPUT_TOO_LARGE');
+    expect(result.output.warnings?.[0]?.code).toBe('INPUT_TOO_LARGE');
+    expect(result.output.warnings?.[0]?.meta?.maxBytes).toBe(
+      String(MAX_STDIN_BYTES),
+    );
   });
 });
 
@@ -229,6 +249,19 @@ describe('codex-wrapper jsonl state machine', () => {
     expect(warn?.meta?.oldSessionId).toBe('old-session');
     expect(warn?.meta?.newSessionId).toBe('new-thread');
     expect(warn?.meta?.group).toBe('group-b');
+    expect(spawnFn.calls[0]?.command).toBe('codex');
+    expect(spawnFn.calls[0]?.args).toEqual([
+      'exec',
+      'resume',
+      'old-session',
+      '--json',
+      '--skip-git-repo-check',
+    ]);
+    expect(spawnFn.calls[1]?.args).toEqual([
+      'exec',
+      '--json',
+      '--skip-git-repo-check',
+    ]);
   });
 
   it('fails with JSONL_PARSE_ERROR after parse error threshold is exceeded', async () => {
