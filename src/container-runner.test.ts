@@ -65,9 +65,13 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
-const mockReadEnvFile = vi.fn(() => ({}));
+const { mockReadEnvFile } = vi.hoisted(() => ({
+  mockReadEnvFile: vi.fn(
+    (_keys: string[]) => ({} as Record<string, string>),
+  ),
+}));
 vi.mock('./env.js', () => ({
-  readEnvFile: (...args: unknown[]) => mockReadEnvFile(...args),
+  readEnvFile: mockReadEnvFile,
 }));
 
 // Create a controllable fake ChildProcess
@@ -420,7 +424,7 @@ describe('container-runner timeout behavior', () => {
       return false;
     });
 
-    readFileSyncMock.mockImplementation((p: PathLike) => {
+    readFileSyncMock.mockImplementation((p: unknown) => {
       const str = String(p);
       if (str.endsWith('/.codex/auth.json'))
         return Buffer.from('{"token":"x"}');
@@ -525,15 +529,21 @@ describe('container-runner timeout behavior', () => {
       })
       .mockImplementationOnce(() => 77);
     statSyncMock.mockImplementation(
-      () => ({ isDirectory: () => false, mtimeMs: Date.now() - 60_000 }) as never,
+      () =>
+        ({ isDirectory: () => false, mtimeMs: Date.now() - 60_000 }) as never,
     );
-    readFileSyncMock.mockImplementation((p: PathLike) => {
+    readFileSyncMock.mockImplementation((p: unknown) => {
       const str = String(p);
-      if (str.endsWith('/.codex/auth.json')) return Buffer.from('{"token":"x"}');
+      if (str.endsWith('/.codex/auth.json'))
+        return Buffer.from('{"token":"x"}');
       return '';
     });
     renameSyncMock.mockImplementation((_tmp, dest) => {
-      if (String(dest).includes('/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json')) {
+      if (
+        String(dest).includes(
+          '/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json',
+        )
+      ) {
         groupAuthExists = true;
       }
     });
