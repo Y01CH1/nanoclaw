@@ -193,11 +193,7 @@ async function runTask(
           deps.queue.notifyIdle(task.chat_jid);
         }
         if (streamedOutput.status === 'error') {
-          error =
-            streamedOutput.message ||
-            streamedOutput.errors?.join('; ') ||
-            streamedOutput.error ||
-            'Unknown error';
+          error = streamedOutput.error || 'Unknown error';
         }
       },
     );
@@ -205,11 +201,7 @@ async function runTask(
     if (closeTimer) clearTimeout(closeTimer);
 
     if (output.status === 'error') {
-      error =
-        output.message ||
-        output.errors?.join('; ') ||
-        output.error ||
-        'Unknown error';
+      error = output.error || 'Unknown error';
     } else if (output.result) {
       // Messages are sent via MCP tool (IPC), result text is just logged
       result = output.result;
