@@ -269,4 +269,22 @@ describe('container-runner timeout behavior', () => {
       '/tmp/nanoclaw-test-data/sessions/test-group/.codex:/home/node/.codex',
     );
   });
+
+  it('normalizes legacy error field into message in non-streaming mode', async () => {
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+
+    emitOutputMarker(fakeProc, {
+      status: 'error',
+      result: null,
+      error: 'Legacy error message',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('error');
+    expect(result.message).toBe('Legacy error message');
+  });
 });

@@ -323,7 +323,10 @@ async function runAgent(
 
     if (output.status === 'error') {
       logger.error(
-        { group: group.name, error: output.error },
+        {
+          group: group.name,
+          error: output.message || output.errors?.join('; ') || output.error,
+        },
         'Container agent error',
       );
       return 'error';

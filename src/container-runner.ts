@@ -42,9 +42,17 @@ export interface ContainerInput {
 }
 
 export interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'partial';
   result: string | null;
-  newSessionId?: string;
+  newSessionId?: string | null;
+  message?: string;
+  errors?: string[];
+  warnings?: Array<{
+    code: string;
+    message?: string;
+    meta?: Record<string, string>;
+  }>;
+  // Deprecated: kept for backwards compatibility with legacy consumers
   error?: string;
 }
 
@@ -285,6 +293,75 @@ function buildContainerArgs(
   return args;
 }
 
+function normalizeContainerOutput(raw: unknown): ContainerOutput {
+  const parsed = raw as Partial<ContainerOutput>;
+  const status =
+    parsed.status === 'success' ||
+    parsed.status === 'error' ||
+    parsed.status === 'partial'
+      ? parsed.status
+      : 'error';
+
+  const result =
+    typeof parsed.result === 'string' || parsed.result === null
+      ? parsed.result
+      : parsed.result == null
+        ? null
+        : JSON.stringify(parsed.result);
+
+  const message =
+    typeof parsed.message === 'string'
+      ? parsed.message
+      : typeof parsed.error === 'string'
+        ? parsed.error
+        : undefined;
+
+  const errors = Array.isArray(parsed.errors)
+    ? parsed.errors.map((e) => String(e))
+    : undefined;
+
+  const warnings = Array.isArray(parsed.warnings)
+    ? parsed.warnings.map((w) => ({
+        code: String((w as { code?: unknown }).code ?? ''),
+        message:
+          typeof (w as { message?: unknown }).message === 'string'
+            ? (w as { message?: string }).message
+            : undefined,
+        meta:
+          typeof (w as { meta?: unknown }).meta === 'object' &&
+          (w as { meta?: unknown }).meta
+            ? Object.fromEntries(
+                Object.entries(
+                  (w as { meta: Record<string, unknown> }).meta,
+                ).map(([k, v]) => [k, String(v)]),
+              )
+            : undefined,
+      }))
+    : undefined;
+
+  const newSessionId =
+    typeof parsed.newSessionId === 'string' || parsed.newSessionId === null
+      ? parsed.newSessionId
+      : undefined;
+
+  const normalized: ContainerOutput = {
+    status,
+    result,
+    newSessionId,
+    message,
+    errors,
+    warnings,
+    error: message,
+  };
+
+  if (normalized.status === 'error' && !normalized.message) {
+    normalized.message = 'UNKNOWN_CONTAINER_ERROR';
+    normalized.error = normalized.message;
+  }
+
+  return normalized;
+}
+
 export async function runContainerAgent(
   group: RegisteredGroup,
   input: ContainerInput,
@@ -385,7 +462,7 @@ export async function runContainerAgent(
           parseBuffer = parseBuffer.slice(endIdx + OUTPUT_END_MARKER.length);
 
           try {
-            const parsed: ContainerOutput = JSON.parse(jsonStr);
+            const parsed = normalizeContainerOutput(JSON.parse(jsonStr));
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
@@ -505,6 +582,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Container timed out after ${configTimeout}ms`,
           error: `Container timed out after ${configTimeout}ms`,
         });
         return;
@@ -584,6 +662,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Container exited with code ${code}: ${stderr.slice(-200)}`,
           error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
         });
         return;
@@ -622,7 +701,7 @@ export async function runContainerAgent(
           jsonLine = lines[lines.length - 1];
         }
 
-        const output: ContainerOutput = JSON.parse(jsonLine);
+        const output = normalizeContainerOutput(JSON.parse(jsonLine));
 
         logger.info(
           {
@@ -649,6 +728,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
           error: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
@@ -663,6 +743,7 @@ export async function runContainerAgent(
       resolve({
         status: 'error',
         result: null,
+        message: `Container spawn error: ${err.message}`,
         error: `Container spawn error: ${err.message}`,
       });
     });
