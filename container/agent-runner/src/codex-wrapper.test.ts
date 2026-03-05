@@ -15,6 +15,7 @@ interface Scenario {
 }
 
 type SpawnReturn = EventEmitter & {
+  stdin: PassThrough;
   stdout: PassThrough;
   stderr: PassThrough;
   kill: () => boolean;
@@ -22,17 +23,29 @@ type SpawnReturn = EventEmitter & {
 
 function createSpawnMock(scenarios: Scenario[]) {
   let call = 0;
-  const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+  const calls: Array<{
+    command: string;
+    args: string[];
+    cwd: string;
+    stdinData: string;
+  }> = [];
 
   const fn = (command: string, args: string[], options: { cwd: string }) => {
-    calls.push({ command, args, cwd: options.cwd });
+    const callRecord = { command, args, cwd: options.cwd, stdinData: '' };
+    calls.push(callRecord);
     const scenario = scenarios[call++];
     if (!scenario) throw new Error('No scenario configured');
 
     const proc = new EventEmitter() as SpawnReturn;
+    proc.stdin = new PassThrough();
     proc.stdout = new PassThrough();
     proc.stderr = new PassThrough();
     proc.kill = () => true;
+    proc.stdin.on('data', (chunk) => {
+      callRecord.stdinData += Buffer.isBuffer(chunk)
+        ? chunk.toString('utf8')
+        : String(chunk);
+    });
 
     queueMicrotask(() => {
       for (const line of scenario.stdoutLines) {
@@ -134,6 +147,7 @@ describe('codex-wrapper jsonl state machine', () => {
     expect(result.output.status).toBe('success');
     expect(result.output.result).toBe('hello world');
     expect(result.output.newSessionId).toBe('thread-1');
+    expect(spawnFn.calls[0]?.stdinData).toBe('p');
   });
 
   it('returns NO_AGENT_MESSAGE when stream has no agent_message', async () => {

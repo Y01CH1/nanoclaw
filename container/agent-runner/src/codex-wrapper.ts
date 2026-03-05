@@ -65,9 +65,13 @@ interface SpawnLike {
     options: {
       cwd: string;
       env: NodeJS.ProcessEnv;
-      stdio: ['ignore', 'pipe', 'pipe'];
+      stdio: ['pipe', 'pipe', 'pipe'];
     },
   ): {
+    stdin: {
+      write(chunk: string | Buffer): boolean;
+      end(): void;
+    };
     stdout: Readable;
     stderr: Readable;
     on(event: 'close', listener: (code: number | null) => void): void;
@@ -236,8 +240,13 @@ async function runCodexAttempt(
   const child = spawnFn('codex', args, {
     cwd: getWorkingDir(input),
     env: buildCodexEnv(input),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
+
+  // Pass the user prompt through codex stdin for both new and resumed turns.
+  const promptText = typeof input.prompt === 'string' ? input.prompt : '';
+  child.stdin.write(promptText);
+  child.stdin.end();
 
   let parseErrors = 0;
   let sawThreadNotFound = false;
