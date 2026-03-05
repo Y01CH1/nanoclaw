@@ -22,6 +22,25 @@ import {
 } from './platform.js';
 import { emitStatus } from './status.js';
 
+export function detectCredentialStatus(envContent: string): {
+  status: 'configured' | 'deprecated_config' | 'missing';
+  source: 'codex' | 'openai' | 'anthropic' | 'claude_code' | 'none';
+} {
+  const hasCodex = /^CODEX_API_KEY=/m.test(envContent);
+  const hasOpenAI = /^OPENAI_API_KEY=/m.test(envContent);
+  const hasAnthropic = /^ANTHROPIC_[A-Z0-9_]+=|^ANTHROPIC_API_KEY=/m.test(
+    envContent,
+  );
+  const hasClaudeCode = /^CLAUDE_CODE_[A-Z0-9_]+=/m.test(envContent);
+
+  if (hasCodex) return { status: 'configured', source: 'codex' };
+  if (hasOpenAI) return { status: 'configured', source: 'openai' };
+  if (hasAnthropic) return { status: 'deprecated_config', source: 'anthropic' };
+  if (hasClaudeCode)
+    return { status: 'deprecated_config', source: 'claude_code' };
+  return { status: 'missing', source: 'none' };
+}
+
 export async function run(_args: string[]): Promise<void> {
   const projectRoot = process.cwd();
   const platform = getPlatform();
@@ -98,12 +117,13 @@ export async function run(_args: string[]): Promise<void> {
 
   // 3. Check credentials
   let credentials = 'missing';
+  let credentialSource = 'none';
   const envFile = path.join(projectRoot, '.env');
   if (fs.existsSync(envFile)) {
     const envContent = fs.readFileSync(envFile, 'utf-8');
-    if (/^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=/m.test(envContent)) {
-      credentials = 'configured';
-    }
+    const detected = detectCredentialStatus(envContent);
+    credentials = detected.status;
+    credentialSource = detected.source;
   }
 
   // 4. Check channel auth (detect configured channels by credentials)
@@ -180,6 +200,7 @@ export async function run(_args: string[]): Promise<void> {
     SERVICE: service,
     CONTAINER_RUNTIME: containerRuntime,
     CREDENTIALS: credentials,
+    CREDENTIAL_SOURCE: credentialSource,
     CONFIGURED_CHANNELS: configuredChannels.join(','),
     CHANNEL_AUTH: JSON.stringify(channelAuth),
     REGISTERED_GROUPS: registeredGroups,
