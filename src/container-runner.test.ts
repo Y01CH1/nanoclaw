@@ -52,6 +52,11 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
+const mockReadEnvFile = vi.fn(() => ({}));
+vi.mock('./env.js', () => ({
+  readEnvFile: (...args: unknown[]) => mockReadEnvFile(...args),
+}));
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {
@@ -116,6 +121,8 @@ describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.unstubAllEnvs();
+    mockReadEnvFile.mockReset();
+    mockReadEnvFile.mockReturnValue({});
     fakeProc = createFakeProcess();
   });
 
@@ -335,5 +342,37 @@ describe('container-runner timeout behavior', () => {
         errorOnExist: false,
       }),
     );
+  });
+
+  it('injects CODEX_API_KEY and OPENAI_API_KEY into container stdin secrets', async () => {
+    mockReadEnvFile.mockReturnValue({
+      CODEX_API_KEY: 'codex-test-key',
+      OPENAI_API_KEY: 'openai-test-key',
+    });
+
+    let stdinPayload = '';
+    fakeProc.stdin.on('data', (chunk) => {
+      stdinPayload += chunk.toString();
+    });
+
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'ok',
+      newSessionId: 'session-secret',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+
+    const parsedInput = JSON.parse(stdinPayload) as {
+      secrets?: Record<string, string>;
+    };
+    expect(parsedInput.secrets?.CODEX_API_KEY).toBe('codex-test-key');
+    expect(parsedInput.secrets?.OPENAI_API_KEY).toBe('openai-test-key');
   });
 });

@@ -57,6 +57,11 @@ export interface ContainerOutput {
 }
 
 export type AgentBackend = 'codex' | 'claude';
+type CodexCredentialSource =
+  | 'codex_key'
+  | 'openai_key'
+  | 'codex_auth_file'
+  | 'none';
 
 interface VolumeMount {
   hostPath: string;
@@ -248,11 +253,29 @@ function buildVolumeMounts(
  */
 function readSecrets(): Record<string, string> {
   return readEnvFile([
+    'CODEX_API_KEY',
+    'OPENAI_API_KEY',
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
   ]);
+}
+
+function resolveCodexCredentialSource(groupFolder: string): CodexCredentialSource {
+  const secrets = readSecrets();
+  if (secrets.CODEX_API_KEY) return 'codex_key';
+  if (secrets.OPENAI_API_KEY) return 'openai_key';
+
+  const authPath = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.codex',
+    'auth.json',
+  );
+  if (fs.existsSync(authPath)) return 'codex_auth_file';
+  return 'none';
 }
 
 function getAgentBackend(): AgentBackend {
@@ -384,6 +407,10 @@ export async function runContainerAgent(
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const backend = getAgentBackend();
+  const credentialSource =
+    backend === 'codex'
+      ? resolveCodexCredentialSource(group.folder)
+      : 'legacy';
   const containerArgs = buildContainerArgs(mounts, containerName, backend);
 
   logger.debug(
@@ -406,6 +433,7 @@ export async function runContainerAgent(
       mountCount: mounts.length,
       isMain: input.isMain,
       backend,
+      credentialSource,
     },
     'Spawning container agent',
   );
