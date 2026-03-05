@@ -66,9 +66,7 @@ vi.mock('./mount-security.js', () => ({
 }));
 
 const { mockReadEnvFile } = vi.hoisted(() => ({
-  mockReadEnvFile: vi.fn(
-    (_keys: string[]) => ({} as Record<string, string>),
-  ),
+  mockReadEnvFile: vi.fn((_keys: string[]) => ({}) as Record<string, string>),
 }));
 vi.mock('./env.js', () => ({
   readEnvFile: mockReadEnvFile,
