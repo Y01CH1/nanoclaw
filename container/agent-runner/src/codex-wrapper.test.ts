@@ -321,6 +321,38 @@ describe('codex-wrapper jsonl state machine', () => {
     expect(spawnFn.calls[1]?.args).toContain('--danger-full-access');
   });
 
+  it('defaults to readonly mode and does not auto-enable elevated sandbox flags', async () => {
+    const spawnFn = createSpawnMock([
+      {
+        stdoutLines: [
+          JSON.stringify({ type: 'thread.started', thread_id: 'thread-default' }),
+          JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'ok' }] },
+            },
+          }),
+          JSON.stringify({ type: 'turn.completed' }),
+        ],
+      },
+    ]);
+
+    const input = new PassThrough();
+    input.end(
+      JSON.stringify({
+        prompt: 'p',
+        groupFolder: 'g',
+        chatJid: 'c',
+        isMain: false,
+      }),
+    );
+    await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+
+    expect(spawnFn.calls[0]?.args).not.toContain('--full-auto');
+    expect(spawnFn.calls[0]?.args).not.toContain('--danger-full-access');
+  });
+
   it('fails with JSONL_PARSE_ERROR after parse error threshold is exceeded', async () => {
     const badLines = Array.from({ length: 12 }, () => 'not-json-line');
     const spawnFn = createSpawnMock([
