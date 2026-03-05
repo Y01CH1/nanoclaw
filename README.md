@@ -27,12 +27,31 @@ NanoClaw provides that same core functionality, but in a codebase small enough t
 ```bash
 git clone https://github.com/qwibitai/nanoclaw.git
 cd NanoClaw
-claude
+./scripts/setup.sh
 ```
 
-Then run `/setup`. Claude Code handles everything: dependencies, authentication, container setup and service configuration.
+Run verification with:
 
-> **Note:** Commands prefixed with `/` (like `/setup`, `/add-whatsapp`) are [Claude Code skills](https://code.claude.com/docs/en/skills). Type them inside the `claude` CLI prompt, not in your regular terminal.
+```bash
+./scripts/verify.sh
+```
+
+You can still drive setup with Codex CLI:
+
+```bash
+codex exec --full-auto "./scripts/setup.sh"
+codex exec --full-auto "./scripts/verify.sh"
+```
+
+Credential priority during the migration window:
+`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
+
+Legacy skills to script mapping:
+
+| Legacy skill command | Script command |
+| --- | --- |
+| `/setup` | `./scripts/setup.sh` |
+| `/debug` | `./scripts/verify.sh` |
 
 ## Philosophy
 
