@@ -27,6 +27,7 @@ export interface CodexContainerInput {
   model?: string;
   systemPrompt?: string;
   env?: Record<string, string>;
+  sandboxMode?: 'readonly' | 'full-auto' | 'danger-full-access';
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
@@ -191,10 +192,17 @@ export function extractAgentMessageText(item: unknown): string {
 }
 
 function buildCodexArgs(input: CodexContainerInput, resumeId?: string): string[] {
-  if (resumeId) {
-    return ['exec', 'resume', resumeId, '--json', '--skip-git-repo-check'];
+  const args = resumeId
+    ? ['exec', 'resume', resumeId, '--json', '--skip-git-repo-check']
+    : ['exec', '--json', '--skip-git-repo-check'];
+
+  if (input.sandboxMode === 'full-auto') {
+    args.push('--full-auto');
+  } else if (input.sandboxMode === 'danger-full-access') {
+    args.push('--danger-full-access');
   }
-  return ['exec', '--json', '--skip-git-repo-check'];
+
+  return args;
 }
 
 function buildCodexEnv(input: CodexContainerInput): NodeJS.ProcessEnv {
@@ -479,6 +487,16 @@ export async function runWrapperFromStdin(
   }
 
   const output = await executeCodexWrapper(containerInput, opts);
+  if (
+    process.env.MAP_PARTIAL_TO_SUCCESS === '1' &&
+    output.status === 'partial'
+  ) {
+    output.status = 'success';
+    output.warnings = [
+      ...(output.warnings ?? []),
+      makeWarning('PARTIAL_MAPPED_TO_SUCCESS'),
+    ];
+  }
   return {
     output,
     exitCode: output.status === 'error' ? 1 : 0,

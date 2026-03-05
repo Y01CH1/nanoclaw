@@ -264,6 +264,63 @@ describe('codex-wrapper jsonl state machine', () => {
     ]);
   });
 
+  it('passes sandbox mode flags to codex exec', async () => {
+    const spawnFn = createSpawnMock([
+      {
+        stdoutLines: [
+          JSON.stringify({ type: 'thread.started', thread_id: 'thread-sbx' }),
+          JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'ok' }] },
+            },
+          }),
+          JSON.stringify({ type: 'turn.completed' }),
+        ],
+      },
+      {
+        stdoutLines: [
+          JSON.stringify({ type: 'thread.started', thread_id: 'thread-sbx-2' }),
+          JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'ok2' }] },
+            },
+          }),
+          JSON.stringify({ type: 'turn.completed' }),
+        ],
+      },
+    ]);
+
+    const input1 = new PassThrough();
+    input1.end(
+      JSON.stringify({
+        prompt: 'p',
+        groupFolder: 'g',
+        chatJid: 'c',
+        isMain: false,
+        sandboxMode: 'full-auto',
+      }),
+    );
+    await runWrapperFromStdin(input1, { spawnFn: spawnFn as never });
+    expect(spawnFn.calls[0]?.args).toContain('--full-auto');
+
+    const input2 = new PassThrough();
+    input2.end(
+      JSON.stringify({
+        prompt: 'p',
+        groupFolder: 'g',
+        chatJid: 'c',
+        isMain: false,
+        sandboxMode: 'danger-full-access',
+      }),
+    );
+    await runWrapperFromStdin(input2, { spawnFn: spawnFn as never });
+    expect(spawnFn.calls[1]?.args).toContain('--danger-full-access');
+  });
+
   it('fails with JSONL_PARSE_ERROR after parse error threshold is exceeded', async () => {
     const badLines = Array.from({ length: 12 }, () => 'not-json-line');
     const spawnFn = createSpawnMock([
