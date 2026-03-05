@@ -213,8 +213,15 @@ function buildVolumeMounts(
     group.folder,
     'agent-runner-src',
   );
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  if (fs.existsSync(agentRunnerSrc)) {
+    // Keep group-local customizations, but always seed newly added runner files
+    // (for example codex-wrapper.ts) into existing group directories.
+    fs.mkdirSync(groupAgentRunnerDir, { recursive: true });
+    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,

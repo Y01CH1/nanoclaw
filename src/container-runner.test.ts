@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import fs, { PathLike } from 'fs';
 
 // Sentinel markers must match container-runner.ts
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -40,6 +41,7 @@ vi.mock('fs', async () => {
       readFileSync: vi.fn(() => ''),
       readdirSync: vi.fn(() => []),
       statSync: vi.fn(() => ({ isDirectory: () => false })),
+      cpSync: vi.fn(),
       copyFileSync: vi.fn(),
     },
   };
@@ -290,5 +292,48 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('error');
     expect(result.message).toBe('Legacy error message');
+  });
+
+  it('syncs newly added agent-runner files without overwriting existing group copy', async () => {
+    const existsSyncMock = vi.mocked(fs.existsSync);
+    existsSyncMock.mockImplementation((p: PathLike) => {
+      const str = String(p);
+      return (
+        str.includes('container/agent-runner/src') ||
+        str.includes('sessions/test-group/agent-runner-src')
+      );
+    });
+
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'seed merge',
+      newSessionId: 'session-seed',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+
+    const cpSyncMock = vi.mocked(fs.cpSync);
+    expect(cpSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('container/agent-runner/src'),
+      expect.stringContaining('sessions/test-group/agent-runner-src'),
+      expect.objectContaining({
+        recursive: true,
+        force: false,
+        errorOnExist: false,
+      }),
+    );
   });
 });
