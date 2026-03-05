@@ -238,4 +238,35 @@ describe('container-runner timeout behavior', () => {
     expect(args).toContain('-e');
     expect(args).toContain('AGENT_BACKEND=claude');
   });
+
+  it('mounts per-group .codex sessions and defaults backend to codex', async () => {
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'Codex mount check',
+      newSessionId: 'session-codex',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+
+    const { spawn } = await import('child_process');
+    const spawnMock = vi.mocked(spawn);
+    const [, args] = spawnMock.mock.calls.at(-1)!;
+    expect(args).toContain('AGENT_BACKEND=codex');
+    expect(args).toContain(
+      '/tmp/nanoclaw-test-data/sessions/test-group/.codex:/home/node/.codex',
+    );
+  });
 });

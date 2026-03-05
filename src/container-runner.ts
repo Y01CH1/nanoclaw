@@ -163,6 +163,21 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Per-group Codex sessions directory (isolated from other groups)
+  // Keep .codex and .claude side-by-side during the rollback window.
+  const groupCodexSessionsDir = path.join(
+    DATA_DIR,
+    'sessions',
+    group.folder,
+    '.codex',
+  );
+  fs.mkdirSync(groupCodexSessionsDir, { recursive: true });
+  mounts.push({
+    hostPath: groupCodexSessionsDir,
+    containerPath: '/home/node/.codex',
+    readonly: false,
+  });
+
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);
