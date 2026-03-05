@@ -490,3 +490,20 @@ export async function runCodexWrapperMain(): Promise<void> {
   writeOutput(result.output);
   process.exit(result.exitCode);
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runCodexWrapperMain().catch((err) => {
+    writeOutput({
+      status: 'error',
+      result: null,
+      message: 'WRAPPER_FATAL_ERROR',
+      warnings: [
+        {
+          code: 'WRAPPER_FATAL_ERROR',
+          message: toStringValue(err),
+        },
+      ],
+    });
+    process.exit(1);
+  });
+}
