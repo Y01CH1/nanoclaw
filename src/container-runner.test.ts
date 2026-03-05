@@ -239,7 +239,7 @@ describe('container-runner timeout behavior', () => {
     expect(args).toContain('AGENT_BACKEND=claude');
   });
 
-  it('mounts per-group .codex sessions and defaults backend to codex', async () => {
+  it('mounts per-group .codex sessions and propagates resolved backend', async () => {
     const onOutput = vi.fn(async () => {});
     const resultPromise = runContainerAgent(
       testGroup,
@@ -264,7 +264,11 @@ describe('container-runner timeout behavior', () => {
     const { spawn } = await import('child_process');
     const spawnMock = vi.mocked(spawn);
     const [, args] = spawnMock.mock.calls.at(-1)!;
-    expect(args).toContain('AGENT_BACKEND=codex');
+    const expectedBackend =
+      process.env.AGENT_BACKEND?.trim().toLowerCase() === 'claude'
+        ? 'claude'
+        : 'codex';
+    expect(args).toContain(`AGENT_BACKEND=${expectedBackend}`);
     expect(args).toContain(
       '/tmp/nanoclaw-test-data/sessions/test-group/.codex:/home/node/.codex',
     );
