@@ -12,7 +12,7 @@
   <a href="https://discord.gg/VDdww8qS42"><img src="https://img.shields.io/discord/1470188214710046894?label=Discord&logo=discord&v=2" alt="Discord" valign="middle"></a>&nbsp; • &nbsp;
   <a href="repo-tokens"><img src="repo-tokens/badge.svg" alt="34.9k tokens, 17% of context window" valign="middle"></a>
 </p>
-通过 Claude Code，NanoClaw 可以动态重写自身代码，根据您的需求定制功能。
+NanoClaw 默认使用 Codex 作为运行后端，并可根据您的需求动态重写代码。
 
 **新功能：** 首个支持 [Agent Swarms（智能体集群）](https://code.claude.com/docs/en/agent-teams) 的 AI 助手。可轻松组建智能体团队，在您的聊天中高效协作。
 
@@ -27,35 +27,47 @@ NanoClaw 用一个您能快速理解的代码库，为您提供了同样的核�
 ```bash
 git clone https://github.com/qwibitai/nanoclaw.git
 cd nanoclaw
-claude
+./scripts/setup.sh
 ```
 
-然后运行 `/setup`。Claude Code 会处理一切：依赖安装、身份验证、容器设置、服务配置。
+然后运行：
 
-> **注意：** 以 `/` 开头的命令（如 `/setup`、`/add-whatsapp`）是 [Claude Code 技能](https://code.claude.com/docs/en/skills)。请在 `claude` CLI 提示符中输入，而非在普通终端中。
+```bash
+./scripts/verify.sh
+```
+
+也可以通过 Codex CLI 触发：
+
+```bash
+codex exec --full-auto "./scripts/setup.sh"
+codex exec --full-auto "./scripts/verify.sh"
+```
+
+迁移窗口期间的凭据优先级：
+`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
 
 ## 设计哲学
 
-**小巧易懂：** 单一进程，少量源文件。无微服务、无消息队列、无复杂抽象层。让 Claude Code 引导您轻松上手。
+**小巧易懂：** 单一进程，少量源文件。无微服务、无消息队列、无复杂抽象层。让 Codex（默认后端）引导您轻松上手。
 
 **通过隔离保障安全:** 智能体运行在 Linux 容器（在 macOS 上是 Apple Container，或 Docker）中。它们只能看到被明确挂载的内容。即便通过 Bash 访问也十分安全，因为所有命令都在容器内执行，不会直接操作您的宿主机。
 
-**为单一用户打造:** 这不是一个框架，是一个完全符合您个人需求的、可工作的软件。您可以 Fork 本项目，然后让 Claude Code 根据您的精确需求进行修改和适配。
+**为单一用户打造:** 这不是一个框架，是一个完全符合您个人需求的、可工作的软件。您可以 Fork 本项目，然后让 Codex 根据您的精确需求进行修改和适配。
 
 **定制即代码修改:** 没有繁杂的配置文件。想要不同的行为？直接修改代码。代码库足够小，这样做是安全的。
 
-**AI 原生:** 无安装向导（由 Claude Code 指导安装）。无需监控仪表盘，直接询问 Claude 即可了解系统状况。无调试工具（描述问题，Claude 会修复它）。
+**AI 原生:** 无安装向导（脚本化安装）。无需监控仪表盘，可直接询问智能体系统状态。无调试工具（描述问题，智能体可协助修复）。
 
-**技能（Skills）优于功能（Features）:** 贡献者不应该向代码库添加新功能（例如支持 Telegram）。相反，他们应该贡献像 `/add-telegram` 这样的 [Claude Code 技能](https://code.claude.com/docs/en/skills)，这些技能可以改造您的 fork。最终，您得到的是只做您需要事情的整洁代码。
+**技能（Skills）优于功能（Features）:** 贡献者不应该向代码库添加新功能（例如支持 Telegram）。相反，他们应该贡献像 `/add-telegram` 这样的技能来改造您的 fork。最终，您得到的是只做您需要事情的整洁代码。
 
-**最好的工具套件，最好的模型:** 本项目运行在 Claude Agent SDK 之上，这意味着您直接运行的就是 Claude Code。Claude Code 高度强大，其编码和问题解决能力使其能够修改和扩展 NanoClaw，为每个用户量身定制。
+**最好的工具套件，最好的模型:** 当前默认运行时为 Codex wrapper，并保留受控的 Claude 回退窗口（`AGENT_BACKEND=claude`）以保障迁移稳定性。
 
 ## 功能支持
 
 - **多渠道消息** - 通过 WhatsApp、Telegram、Discord、Slack 或 Gmail 与您的助手对话。使用 `/add-whatsapp` 或 `/add-telegram` 等技能添加渠道，可同时运行一个或多个。
 - **隔离的群组上下文** - 每个群组都拥有独立的 `CLAUDE.md` 记忆和隔离的文件系统。它们在各自的容器沙箱中运行，且仅挂载所需的文件系统。
 - **主频道** - 您的私有频道（self-chat），用于管理控制；其他所有群组都完全隔离
-- **计划任务** - 运行 Claude 的周期性作业，并可以给您回发消息
+- **计划任务** - 运行当前配置后端的周期性作业，并可以给您回发消息
 - **网络访问** - 搜索和抓取网页内容
 - **容器隔离** - 智能体在 Apple Container (macOS) 或 Docker (macOS/Linux) 的沙箱中运行
 - **智能体集群（Agent Swarms）** - 启动多个专业智能体团队，协作完成复杂任务（首个支持此功能的个人 AI 助手）
@@ -80,7 +92,7 @@ claude
 
 ## 定制
 
-没有需要学习的配置文件。直接告诉 Claude Code 您想要什么：
+没有需要学习的配置文件。直接告诉 Codex（或你的编码智能体）您想要什么：
 
 - "把触发词改成 @Bob"
 - "记住以后回答要更简短直接"
@@ -95,7 +107,7 @@ claude
 
 **不要添加功能，而是添加技能。**
 
-如果您想添加 Telegram 支持，不要创建一个 PR 同时添加 Telegram 和 WhatsApp。而是贡献一个技能文件 (`.claude/skills/add-telegram/SKILL.md`)，教 Claude Code 如何改造一个 NanoClaw 安装以使用 Telegram。
+如果您想添加 Telegram 支持，不要创建一个 PR 同时添加 Telegram 和 WhatsApp。而是贡献一个技能文件 (`.claude/skills/add-telegram/SKILL.md`)，教智能体流程如何改造一个 NanoClaw 安装以使用 Telegram。
 
 然后用户在自己的 fork 上运行 `/add-telegram`，就能得到只做他们需要事情的整洁代码，而不是一个试图支持所有用例的臃肿系统。
 
@@ -107,19 +119,19 @@ claude
 - `/add-signal` - 添加 Signal 作为渠道
 
 **会话管理**
-- `/clear` - 添加一个 `/clear` 命令，用于压缩会话（在同一会话中总结上下文，同时保留关键信息）。这需要研究如何通过 Claude Agent SDK 以编程方式触发压缩。
+- `/clear` - 添加一个 `/clear` 命令，用于压缩会话（在同一会话中总结上下文，同时保留关键信息）。
 
 ## 系统要求
 
 - macOS 或 Linux
 - Node.js 20+
-- [Claude Code](https://claude.ai/download)
+- [Codex CLI](https://github.com/openai/codex)
 - [Apple Container](https://github.com/apple/container) (macOS) 或 [Docker](https://docker.com/products/docker-desktop) (macOS/Linux)
 
 ## 架构
 
 ```
-渠道 --> SQLite --> 轮询循环 --> 容器 (Claude Agent SDK) --> 响应
+渠道 --> SQLite --> 轮询循环 --> 容器 (Codex wrapper / Claude 回退) --> 响应
 ```
 
 单一 Node.js 进程。渠道通过技能添加，启动时自注册 — 编排器连接具有凭据的渠道。智能体在具有文件系统隔离的 Linux 容器中执行。每个群组的消息队列带有并发控制。通过文件系统进行 IPC。
@@ -145,7 +157,7 @@ Docker 提供跨平台支持（macOS 和 Linux）和成熟的生态系统。在 
 
 **我可以在 Linux 上运行吗？**
 
-可以。Docker 是默认的容器运行时，在 macOS 和 Linux 上都可以使用。只需运行 `/setup`。
+可以。Docker 是默认容器运行时，在 macOS 和 Linux 上都可用。运行 `./scripts/setup.sh` 即可。
 
 **这个项目安全吗？**
 
@@ -157,27 +169,19 @@ Docker 提供跨平台支持（macOS 和 Linux）和成熟的生态系统。在 
 
 **我可以使用第三方或开源模型吗？**
 
-可以。NanoClaw 支持任何 API 兼容的模型端点。在 `.env` 文件中设置以下环境变量：
+可以。NanoClaw 支持多种模型端点。优先级如下：
 
-```bash
-ANTHROPIC_BASE_URL=https://your-api-endpoint.com
-ANTHROPIC_AUTH_TOKEN=your-token-here
-```
+`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
 
-这使您能够使用：
-- 通过 [Ollama](https://ollama.ai) 配合 API 代理运行的本地模型
-- 托管在 [Together AI](https://together.ai)、[Fireworks](https://fireworks.ai) 等平台上的开源模型
-- 兼容 Anthropic API 格式的自定义模型部署
-
-注意：为获得最佳兼容性，模型需支持 Anthropic API 格式。
+回退窗口期间仍兼容 Anthropic 相关配置。
 
 **我该如何调试问题？**
 
-问 Claude Code。"为什么计划任务没有运行？" "最近的日志里有什么？" "为什么这条消息没有得到回应？" 这就是 AI 原生的方法。
+直接询问编码智能体："为什么计划任务没有运行？" "最近日志里有什么？" "为什么这条消息没有得到回应？"
 
 **为什么我的安装不成功？**
 
-如果遇到问题，安装过程中 Claude 会尝试动态修复。如果问题仍然存在，运行 `claude`，然后运行 `/debug`。如果 Claude 发现一个可能影响其他用户的问题，请开一个 PR 来修改 setup SKILL.md。
+如果安装失败，请运行 `./scripts/verify.sh` 并检查日志。迁移窗口期间，你也可以用 `AGENT_BACKEND=claude` 做回退验证。
 
 **什么样的代码更改会被接受？**
 

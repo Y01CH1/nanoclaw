@@ -6,6 +6,7 @@ Core runtime code lives in `src/` (single-process orchestrator, routing, schedul
 Tests are colocated by area:
 - `src/**/*.test.ts`
 - `setup/**/*.test.ts`
+- `container/agent-runner/src/**/*.test.ts`
 - `skills-engine/__tests__/*.test.ts`
 
 ## Build, Test, and Development Commands
@@ -15,6 +16,9 @@ Tests are colocated by area:
 - `npm run typecheck`: strict TS check without emitting files.
 - `npm run test`: run all Vitest suites once.
 - `npm run test:watch`: run tests in watch mode.
+- `npm run test:codex-migration-gates`: run release-blocking migration gates (runner/wrapper/verify/security + typecheck).
+- `npm run test:claude-backend-gate`: run rollback-window gate with `AGENT_BACKEND=claude`.
+- `npm run test:docker-smoke`: build and run container smoke gate (requires Docker).
 - `npm run format:check`: verify formatting in `src/**/*.ts`.
 - `npm run format:fix`: apply Prettier formatting.
 - `./container/build.sh`: rebuild the agent container image.

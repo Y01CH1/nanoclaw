@@ -1,10 +1,10 @@
 # NanoClaw
 
-Personal Claude assistant. See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
+Personal AI assistant (Codex default runtime, Claude rollback window). See [README.md](README.md) for philosophy and setup. See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for architecture decisions.
 
 ## Quick Context
 
-Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to container backends (Codex wrapper by default; Claude fallback during rollback window). Each group has isolated filesystem and memory.
 
 ## Key Files
 
@@ -25,9 +25,9 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 | Skill | When to Use |
 |-------|-------------|
-| `/setup` | First-time installation, authentication, service configuration |
+| `./scripts/setup.sh` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
+| `./scripts/verify.sh` | Container issues, logs, troubleshooting |
 | `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |

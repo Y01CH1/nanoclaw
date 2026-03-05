@@ -1,6 +1,8 @@
 # NanoClaw Specification
 
-A personal Claude assistant with multi-channel support, persistent memory per conversation, scheduled tasks, and container-isolated agent execution.
+A personal AI assistant with multi-channel support, persistent memory per conversation, scheduled tasks, and container-isolated agent execution. Default runtime is Codex wrapper with a controlled Claude rollback window.
+
+> Migration note: sections still mentioning Claude-specific internals describe rollback-window compatibility or historical behavior and will be removed after rollback window close.
 
 ---
 
@@ -56,6 +58,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │  Volume mounts:                                                │    │
 │  │    • groups/{name}/ → /workspace/group                         │    │
 │  │    • groups/global/ → /workspace/global/ (non-main only)       │    │
+│  │    • data/sessions/{group}/.codex/ → /home/node/.codex/        │    │
 │  │    • data/sessions/{group}/.claude/ → /home/node/.claude/      │    │
 │  │    • Additional dirs → /workspace/extra/*                      │    │
 │  │                                                                │    │
@@ -78,7 +81,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 | Channel System | Channel registry (`src/channels/registry.ts`) | Channels self-register at startup |
 | Message Storage | SQLite (better-sqlite3) | Store messages for polling |
 | Container Runtime | Containers (Linux VMs) | Isolated environments for agent execution |
-| Agent | @anthropic-ai/claude-agent-sdk (0.2.29) | Run Claude with tools and MCP servers |
+| Agent | Codex wrapper + Claude fallback | Run agent backends with unified marker protocol |
 | Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
 | Runtime | Node.js 20+ | Host process for routing and scheduling |
 
@@ -86,7 +89,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 
 ## Architecture: Channel System
 
-The core ships with no channels built in — each channel (WhatsApp, Telegram, Slack, Discord, Gmail) is installed as a [Claude Code skill](https://code.claude.com/docs/en/skills) that adds the channel code to your fork. Channels self-register at startup; installed channels with missing credentials emit a WARN log and are skipped.
+The core ships with no channels built in — each channel (WhatsApp, Telegram, Slack, Discord, Gmail) is installed as a skill that adds channel code to your fork. Channels self-register at startup; installed channels with missing credentials emit a WARN log and are skipped.
 
 ### System Diagram
 
