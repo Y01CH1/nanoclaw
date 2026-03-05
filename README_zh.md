@@ -44,7 +44,12 @@ codex exec --full-auto "./scripts/verify.sh"
 ```
 
 迁移窗口期间的凭据优先级：
-`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
+`CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
+
+Codex 运行时说明：
+- `AGENT_BACKEND=codex` 不使用 `ANTHROPIC_*` / `CLAUDE_CODE_*`（这些仅保留给 Claude 回退路径）。
+- 如果主机存在 `~/.codex/auth.json`，且某个 group 缺少 `data/sessions/<group>/.codex/auth.json`，NanoClaw 会在首次运行时自动 seed（`verify` 中显示 `configured_pending_seed`）。
+- 若你使用的是 keyring-only 登录态，NanoClaw 无法自动导入；请改用 `CODEX_API_KEY` / `OPENAI_API_KEY`，或把 Codex CLI 凭据存储切换为文件模式。
 
 ## 设计哲学
 

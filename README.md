@@ -44,7 +44,12 @@ codex exec --full-auto "./scripts/verify.sh"
 ```
 
 Credential priority during the migration window:
-`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
+`CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
+
+Codex runtime notes:
+- Legacy `ANTHROPIC_*` / `CLAUDE_CODE_*` credentials are not used by `AGENT_BACKEND=codex` (they remain for Claude rollback only).
+- If host `~/.codex/auth.json` exists and a group has no `data/sessions/<group>/.codex/auth.json`, NanoClaw seeds it on first run (`configured_pending_seed` state in verify).
+- Keyring-only Codex auth is not auto-imported; use `CODEX_API_KEY` / `OPENAI_API_KEY` or switch Codex CLI credential store to file-based auth.
 
 Legacy skills to script mapping:
 
