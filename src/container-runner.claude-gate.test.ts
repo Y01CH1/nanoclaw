@@ -149,7 +149,11 @@ describe('claude backend gate', () => {
 
   it('keeps basic task-style success contract in claude backend', async () => {
     const promise = runContainerAgent(group, input, () => {});
-    emitOutput({ status: 'success', result: 'task result', newSessionId: 's3' });
+    emitOutput({
+      status: 'success',
+      result: 'task result',
+      newSessionId: 's3',
+    });
     fakeProc.emit('close', 0);
 
     const result = await promise;
