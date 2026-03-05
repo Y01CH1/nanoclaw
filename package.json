@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:claude-backend-gate": "AGENT_BACKEND=claude vitest run src/container-runner.test.ts src/container-runner.claude-gate.test.ts",
-    "test:codex-migration-gates": "vitest run src/container-runner.test.ts src/container-runner.claude-gate.test.ts container/agent-runner/src/codex-wrapper.test.ts setup/verify.test.ts && tsc --noEmit"
+    "test:codex-migration-gates": "vitest run src/container-runner.test.ts src/container-runner.claude-gate.test.ts container/agent-runner/src/codex-wrapper.test.ts setup/verify.test.ts && tsc --noEmit",
+    "test:docker-smoke": "./scripts/docker-smoke.sh"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",

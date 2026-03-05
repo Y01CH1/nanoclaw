@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cat <<'JSONL'
+{"type":"thread.started","thread_id":"smoke-thread"}
+{"type":"item.completed","item":{"type":"agent_message","message":{"content":[{"type":"text","text":"smoke ok"}]}}}
+{"type":"turn.completed"}
+JSONL

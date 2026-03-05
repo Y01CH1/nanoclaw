@@ -17,3 +17,6 @@ jobs:
 
       - name: Codex Migration Gates
         run: npm run test:codex-migration-gates
+
+      - name: Docker Smoke Gate
+        run: npm run test:docker-smoke
