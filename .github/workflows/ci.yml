@@ -15,11 +15,5 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Format check
-        run: npm run format:check
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Tests
-        run: npx vitest run
+      - name: Codex Migration Gates
+        run: npm run test:codex-migration-gates
