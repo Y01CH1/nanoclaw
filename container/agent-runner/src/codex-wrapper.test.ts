@@ -6,7 +6,7 @@ import {
   MAX_STDIN_BYTES,
   readStdinWithLimit,
   runWrapperFromStdin,
-} from '../container/agent-runner/src/codex-wrapper.ts';
+} from './codex-wrapper.js';
 
 interface Scenario {
   stdoutLines: string[];
