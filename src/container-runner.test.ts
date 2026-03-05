@@ -480,4 +480,79 @@ describe('container-runner timeout behavior', () => {
     expect(result.warnings?.[0]?.code).toBe('CODEX_CREDENTIAL_MISSING');
     expect(spawnMock.mock.calls.length).toBe(callCountBefore);
   });
+
+  it('treats legacy-only credentials as missing in codex backend', async () => {
+    mockReadEnvFile.mockReturnValue({
+      ANTHROPIC_API_KEY: 'legacy-only',
+    });
+
+    const result = await runContainerAgent(testGroup, testInput, () => {});
+    expect(result.status).toBe('error');
+    expect(result.message).toBe('CODEX_CREDENTIAL_MISSING');
+    const warningCodes = (result.warnings ?? []).map((w) => w.code);
+    expect(warningCodes).toEqual(['CODEX_CREDENTIAL_MISSING']);
+    expect(warningCodes).not.toContain('CODEX_CREDENTIAL_SOURCE_SELECTED');
+  });
+
+  it('recovers stale seed lock and proceeds with auth seeding', async () => {
+    const existsSyncMock = vi.mocked(fs.existsSync);
+    const statSyncMock = vi.mocked(fs.statSync);
+    const openSyncMock = vi.mocked(fs.openSync);
+    const unlinkSyncMock = vi.mocked(fs.unlinkSync);
+    const renameSyncMock = vi.mocked(fs.renameSync);
+    const readFileSyncMock = vi.mocked(fs.readFileSync);
+
+    mockReadEnvFile.mockReturnValue({ CODEX_API_KEY: 'codex-for-run' });
+
+    let groupAuthExists = false;
+    existsSyncMock.mockImplementation((p: PathLike) => {
+      const str = String(p);
+      if (str.endsWith('/.codex/auth.json')) {
+        if (str.includes('/tmp/nanoclaw-test-data/sessions/test-group/')) {
+          return groupAuthExists;
+        }
+        return true;
+      }
+      return false;
+    });
+
+    const staleExistsError = Object.assign(new Error('exists'), {
+      code: 'EEXIST',
+    });
+    openSyncMock
+      .mockImplementationOnce(() => {
+        throw staleExistsError;
+      })
+      .mockImplementationOnce(() => 77);
+    statSyncMock.mockImplementation(
+      () => ({ isDirectory: () => false, mtimeMs: Date.now() - 60_000 }) as never,
+    );
+    readFileSyncMock.mockImplementation((p: PathLike) => {
+      const str = String(p);
+      if (str.endsWith('/.codex/auth.json')) return Buffer.from('{"token":"x"}');
+      return '';
+    });
+    renameSyncMock.mockImplementation((_tmp, dest) => {
+      if (String(dest).includes('/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json')) {
+        groupAuthExists = true;
+      }
+    });
+
+    const resultPromise = runContainerAgent(testGroup, testInput, () => {});
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'lock recovered',
+      newSessionId: 'session-lock',
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+    expect(unlinkSyncMock).toHaveBeenCalledWith(
+      '/tmp/nanoclaw-test-data/sessions/test-group/.codex/.seed.lock',
+    );
+    expect(openSyncMock).toHaveBeenCalledTimes(2);
+  });
 });
