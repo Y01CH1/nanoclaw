@@ -550,6 +550,26 @@ export async function runContainerAgent(
   const backend = getAgentBackend();
   const credentialSource =
     backend === 'codex' ? resolveCodexCredentialSource(group.folder) : 'legacy';
+
+  if (backend === 'codex' && credentialSource === 'none') {
+    logger.error(
+      { group: group.name, credentialSource },
+      'CODEX_CREDENTIAL_MISSING',
+    );
+    return {
+      status: 'error',
+      result: null,
+      message: 'CODEX_CREDENTIAL_MISSING',
+      error: 'CODEX_CREDENTIAL_MISSING',
+      warnings: [
+        {
+          code: 'CODEX_CREDENTIAL_MISSING',
+          meta: { group: group.folder },
+        },
+      ],
+    };
+  }
+
   const containerArgs = buildContainerArgs(mounts, containerName, backend);
 
   logger.debug(

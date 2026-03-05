@@ -40,7 +40,10 @@ vi.mock('fs', async () => {
       writeFileSync: vi.fn(),
       readFileSync: vi.fn(() => ''),
       readdirSync: vi.fn(() => []),
-      statSync: vi.fn(() => ({ isDirectory: () => false, mtimeMs: Date.now() })),
+      statSync: vi.fn(() => ({
+        isDirectory: () => false,
+        mtimeMs: Date.now(),
+      })),
       lstatSync: vi.fn(() => ({
         isDirectory: () => false,
         isFile: () => true,
@@ -132,7 +135,17 @@ describe('container-runner timeout behavior', () => {
     vi.useFakeTimers();
     vi.unstubAllEnvs();
     mockReadEnvFile.mockReset();
-    mockReadEnvFile.mockReturnValue({});
+    mockReadEnvFile.mockReturnValue({ CODEX_API_KEY: 'default-codex-key' });
+    vi.mocked(fs.existsSync).mockReset();
+    vi.mocked(fs.existsSync).mockImplementation(() => false);
+    vi.mocked(fs.readFileSync).mockReset();
+    vi.mocked(fs.readFileSync).mockImplementation(() => '');
+    vi.mocked(fs.writeFileSync).mockReset();
+    vi.mocked(fs.writeFileSync).mockImplementation(() => undefined);
+    vi.mocked(fs.openSync).mockReset();
+    vi.mocked(fs.openSync).mockImplementation(() => 99);
+    vi.mocked(fs.renameSync).mockReset();
+    vi.mocked(fs.renameSync).mockImplementation(() => undefined);
     fakeProc = createFakeProcess();
   });
 
@@ -409,12 +422,17 @@ describe('container-runner timeout behavior', () => {
 
     readFileSyncMock.mockImplementation((p: PathLike) => {
       const str = String(p);
-      if (str.endsWith('/.codex/auth.json')) return Buffer.from('{"token":"x"}');
+      if (str.endsWith('/.codex/auth.json'))
+        return Buffer.from('{"token":"x"}');
       return '';
     });
 
     renameSyncMock.mockImplementation((_tmp, dest) => {
-      if (String(dest).includes('/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json')) {
+      if (
+        String(dest).includes(
+          '/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json',
+        )
+      ) {
         groupAuthExists = true;
       }
     });
@@ -447,5 +465,19 @@ describe('container-runner timeout behavior', () => {
       expect.stringContaining('.tmp-'),
       '/tmp/nanoclaw-test-data/sessions/test-group/.codex/auth.json',
     );
+  });
+
+  it('fails fast before spawn when codex credentials are missing', async () => {
+    mockReadEnvFile.mockReturnValue({});
+
+    const { spawn } = await import('child_process');
+    const spawnMock = vi.mocked(spawn);
+    const callCountBefore = spawnMock.mock.calls.length;
+
+    const result = await runContainerAgent(testGroup, testInput, () => {});
+    expect(result.status).toBe('error');
+    expect(result.message).toBe('CODEX_CREDENTIAL_MISSING');
+    expect(result.warnings?.[0]?.code).toBe('CODEX_CREDENTIAL_MISSING');
+    expect(spawnMock.mock.calls.length).toBe(callCountBefore);
   });
 });
