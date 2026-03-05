@@ -353,6 +353,49 @@ describe('codex-wrapper jsonl state machine', () => {
     expect(spawnFn.calls[0]?.args).not.toContain('--danger-full-access');
   });
 
+  it('locks teams parity to wrapper aggregation by default', async () => {
+    const spawnFn = createSpawnMock([
+      {
+        stdoutLines: [
+          JSON.stringify({ type: 'thread.started', thread_id: 'thread-team' }),
+          JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'alpha' }] },
+            },
+          }),
+          JSON.stringify({
+            type: 'item.completed',
+            item: {
+              type: 'agent_message',
+              message: { content: [{ type: 'text', text: 'beta' }] },
+            },
+          }),
+          JSON.stringify({ type: 'turn.completed' }),
+        ],
+      },
+    ]);
+
+    const input = new PassThrough();
+    input.end(
+      JSON.stringify({
+        prompt: 'p',
+        groupFolder: 'g',
+        chatJid: 'c',
+        isMain: false,
+      }),
+    );
+    const result = await runWrapperFromStdin(input, { spawnFn: spawnFn as never });
+
+    expect(result.output.status).toBe('success');
+    expect(result.output.result).toBe('alpha\n\nbeta');
+    const modeWarning = result.output.warnings?.find(
+      (w) => w.code === 'TEAMS_PARITY_MODE_LOCKED',
+    );
+    expect(modeWarning?.meta?.mode).toBe('wrapper-aggregate');
+  });
+
   it('fails with JSONL_PARSE_ERROR after parse error threshold is exceeded', async () => {
     const badLines = Array.from({ length: 12 }, () => 'not-json-line');
     const spawnFn = createSpawnMock([

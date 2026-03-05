@@ -17,3 +17,12 @@
 
 This commit is formatting-only and does not include behavioral or logic changes.
 No split is required.
+
+## Teams Parity Path (Release Lock)
+
+- Locked path: `wrapper-aggregate` (NanoClaw wrapper-side aggregation).
+- Implementation: aggregate multiple `item.completed` + `agent_message` events
+  into a single result payload (`joined with blank lines`) when multiple agent
+  messages are emitted in one turn.
+- Observability: emits `TEAMS_PARITY_MODE_LOCKED` warning with mode + message
+  count metadata.

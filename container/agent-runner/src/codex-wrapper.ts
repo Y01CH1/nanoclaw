@@ -28,6 +28,7 @@ export interface CodexContainerInput {
   systemPrompt?: string;
   env?: Record<string, string>;
   sandboxMode?: 'readonly' | 'full-auto' | 'danger-full-access';
+  teamsMode?: 'wrapper-aggregate' | 'codex-native';
   isScheduledTask?: boolean;
   assistantName?: string;
   secrets?: Record<string, string>;
@@ -53,6 +54,9 @@ interface AttemptResult {
   sawThreadNotFound: boolean;
   sawTurnFailed: boolean;
 }
+
+const DEFAULT_TEAMS_MODE: 'wrapper-aggregate' | 'codex-native' =
+  'wrapper-aggregate';
 
 interface SpawnLike {
   (
@@ -241,6 +245,7 @@ async function runCodexAttempt(
   let sawTurnCompleted = false;
   let threadId: string | null = null;
   let lastAgentMessage: string | null = null;
+  const allAgentMessages: string[] = [];
   let turnFailedMessage = '';
   let stderr = '';
   const warnings: WrapperWarning[] = [];
@@ -295,6 +300,7 @@ async function runCodexAttempt(
       if (item && item.type === 'agent_message') {
         const text = extractAgentMessageText(item).trim();
         if (text) {
+          allAgentMessages.push(text);
           lastAgentMessage = text;
         }
       }
@@ -401,6 +407,21 @@ async function runCodexAttempt(
     };
   }
 
+  const teamsMode = input.teamsMode ?? DEFAULT_TEAMS_MODE;
+  const finalResult =
+    teamsMode === 'wrapper-aggregate' && allAgentMessages.length > 1
+      ? allAgentMessages.join('\n\n')
+      : lastAgentMessage;
+
+  if (allAgentMessages.length > 1) {
+    warnings.push(
+      makeWarning('TEAMS_PARITY_MODE_LOCKED', undefined, {
+        mode: teamsMode,
+        messageCount: allAgentMessages.length,
+      }),
+    );
+  }
+
   if (!sawTurnCompleted) {
     warnings.push(makeWarning('TURN_COMPLETED_MISSING'));
   }
@@ -408,13 +429,13 @@ async function runCodexAttempt(
   return {
     processExitCode: exitCode,
     sawThreadNotFound,
-    sawTurnFailed,
-    output: {
-      status: 'success',
-      result: lastAgentMessage,
-      newSessionId: threadId,
-      warnings: warnings.length > 0 ? warnings : undefined,
-    },
+      sawTurnFailed,
+      output: {
+        status: 'success',
+        result: finalResult,
+        newSessionId: threadId,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      },
   };
 }
 
