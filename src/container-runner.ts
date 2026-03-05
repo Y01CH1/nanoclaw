@@ -48,6 +48,8 @@ export interface ContainerOutput {
   error?: string;
 }
 
+export type AgentBackend = 'codex' | 'claude';
+
 interface VolumeMount {
   hostPath: string;
   containerPath: string;
@@ -223,14 +225,24 @@ function readSecrets(): Record<string, string> {
   ]);
 }
 
+function getAgentBackend(): AgentBackend {
+  const raw = process.env.AGENT_BACKEND?.trim().toLowerCase();
+  if (!raw || raw === 'codex') return 'codex';
+  if (raw === 'claude') return 'claude';
+  logger.warn({ value: raw }, 'Invalid AGENT_BACKEND value, defaulting to codex');
+  return 'codex';
+}
+
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  backend: AgentBackend,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+  args.push('-e', `AGENT_BACKEND=${backend}`);
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -269,7 +281,8 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const backend = getAgentBackend();
+  const containerArgs = buildContainerArgs(mounts, containerName, backend);
 
   logger.debug(
     {
@@ -290,6 +303,7 @@ export async function runContainerAgent(
       containerName,
       mountCount: mounts.length,
       isMain: input.isMain,
+      backend,
     },
     'Spawning container agent',
   );

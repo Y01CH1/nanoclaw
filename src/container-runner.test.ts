@@ -113,6 +113,7 @@ function emitOutputMarker(
 describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.unstubAllEnvs();
     fakeProc = createFakeProcess();
   });
 
@@ -205,5 +206,36 @@ describe('container-runner timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('keeps claude path behavior when AGENT_BACKEND=claude', async () => {
+    vi.stubEnv('AGENT_BACKEND', 'claude');
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: 'Claude path unchanged',
+      newSessionId: 'session-claude',
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('success');
+    expect(result.newSessionId).toBe('session-claude');
+
+    const { spawn } = await import('child_process');
+    const spawnMock = vi.mocked(spawn);
+    const [, args] = spawnMock.mock.calls.at(-1)!;
+    expect(args).toContain('-e');
+    expect(args).toContain('AGENT_BACKEND=claude');
   });
 });
