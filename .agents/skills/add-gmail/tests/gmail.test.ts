@@ -82,9 +82,9 @@ describe('add-gmail skill package', () => {
     expect(fs.existsSync(arFile)).toBe(true);
 
     const content = fs.readFileSync(arFile, 'utf-8');
-    expect(content).toContain('mcp__gmail__*');
     expect(content).toContain('@gongrzhe/server-gmail-autoauth-mcp');
     expect(content).toContain("import { runWrapperFromStdin, writeOutput } from './codex-wrapper.js';");
+    expect(content).toContain('gmail: {');
     expect(content).not.toContain('@anthropic-ai/claude-agent-sdk');
     expect(content).not.toContain('preset: \'claude_code\'');
   });

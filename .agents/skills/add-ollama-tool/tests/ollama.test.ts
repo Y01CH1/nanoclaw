@@ -28,8 +28,8 @@ describe('add-ollama-tool skill package', () => {
     expect(content).toContain(
       "import { runWrapperFromStdin, writeOutput } from './codex-wrapper.js';",
     );
-    expect(content).toContain("'mcp__ollama__*'");
     expect(content).toContain('/tmp/dist/ollama-mcp-stdio.js');
+    expect(content).toContain("enabledTools: ['ollama_list_models', 'ollama_generate']");
     expect(content).not.toContain('@anthropic-ai/claude-agent-sdk');
     expect(content).not.toContain("preset: 'claude_code'");
   });

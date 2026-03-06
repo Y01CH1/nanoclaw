@@ -305,24 +305,13 @@ function ensureGmailAgentRunnerTools(projectRoot: string): void {
 
   let content = fs.readFileSync(agentRunnerPath, 'utf-8');
 
-  if (!content.includes("'mcp__gmail__*'")) {
-    const target = "'mcp__nanoclaw__*'";
-    if (!content.includes(target)) {
-      throw new Error('Missing allowedTools nanoclaw anchor for Gmail tool patch');
-    }
-    content = content.replace(
-      target,
-      `${target},\n        'mcp__gmail__*'`,
-    );
-  }
-
   if (!content.includes('@gongrzhe/server-gmail-autoauth-mcp')) {
-    const anchor = "        nanoclaw: {\n";
+    const anchor = '  nanoclaw: {\n';
     const snippet =
-      "        gmail: {\n" +
-      "          command: 'npx',\n" +
-      "          args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],\n" +
-      "        },\n";
+      "  gmail: {\n" +
+      "    command: 'npx',\n" +
+      "    args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],\n" +
+      "  },\n";
     content = ensureSnippet(content, anchor, snippet);
   }
 

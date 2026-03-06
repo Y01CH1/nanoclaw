@@ -42,7 +42,7 @@ Apply the changes described in `modify/src/container-runner.ts.intent.md` to `sr
 
 #### 2. Add Gmail MCP server to agent runner
 
-Apply the changes described in `modify/container/agent-runner/src/index.ts.intent.md` to `container/agent-runner/src/index.ts`: add `gmail` MCP server (`npx -y @gongrzhe/server-gmail-autoauth-mcp`) and `'mcp__gmail__*'` to `allowedTools`.
+Apply the changes described in `modify/container/agent-runner/src/index.ts.intent.md` to `container/agent-runner/src/index.ts`: add a `gmail` MCP server (`npx -y @gongrzhe/server-gmail-autoauth-mcp`) to the managed `mcp_servers` block.
 
 #### 3. Record in state
 
@@ -225,7 +225,7 @@ npx -y @gongrzhe/server-gmail-autoauth-mcp
 ### Tool-only mode
 
 1. Remove `~/.gmail-mcp` mount from `src/container-runner.ts`
-2. Remove `gmail` MCP server and `mcp__gmail__*` from `container/agent-runner/src/index.ts`
+2. Remove the `gmail` MCP server entry from `container/agent-runner/src/index.ts`
 3. Remove `gmail` from `.nanoclaw/state.yaml`
 4. Clear stale agent-runner copies: `rm -r data/sessions/*/agent-runner-src 2>/dev/null || true`
 5. Rebuild: `cd container && ./build.sh && cd .. && npm run build && launchctl kickstart -k gui/$(id -u)/com.nanoclaw` (macOS) or `systemctl --user restart nanoclaw` (Linux)
@@ -235,7 +235,7 @@ npx -y @gongrzhe/server-gmail-autoauth-mcp
 1. Delete `src/channels/gmail.ts` and `src/channels/gmail.test.ts`
 2. Remove `import './gmail.js'` from `src/channels/index.ts`
 3. Remove `~/.gmail-mcp` mount from `src/container-runner.ts`
-4. Remove `gmail` MCP server and `mcp__gmail__*` from `container/agent-runner/src/index.ts`
+4. Remove the `gmail` MCP server entry from `container/agent-runner/src/index.ts`
 5. Uninstall: `npm uninstall googleapis`
 6. Remove `gmail` from `.nanoclaw/state.yaml`
 7. Clear stale agent-runner copies: `rm -r data/sessions/*/agent-runner-src 2>/dev/null || true`

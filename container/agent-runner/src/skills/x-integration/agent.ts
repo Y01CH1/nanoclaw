@@ -1,11 +1,3 @@
-/**
- * X Integration MCP Server (container side)
- *
- * This process runs inside the container and exposes X/Twitter actions as MCP tools.
- * The tools communicate with the host process over IPC files. Host-side execution
- * is handled by .agents/skills/x-integration/host.ts.
- */
-
 import fs from 'fs';
 import path from 'path';
 

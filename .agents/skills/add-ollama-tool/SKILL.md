@@ -58,7 +58,7 @@ npx tsx scripts/apply-skill.ts .agents/skills/add-ollama-tool
 This deterministically:
 - Adds `container/agent-runner/src/ollama-mcp-stdio.ts` (Ollama MCP server)
 - Adds `scripts/ollama-watch.sh` (macOS notification watcher)
-- Three-way merges Ollama MCP config into `container/agent-runner/src/index.ts` (allowedTools + mcpServers)
+- Three-way merges Ollama MCP config into `container/agent-runner/src/index.ts` (managed `mcp_servers` block)
 - Three-way merges `[OLLAMA]` log surfacing into `src/container-runner.ts`
 - Records the application in `.nanoclaw/state.yaml`
 
