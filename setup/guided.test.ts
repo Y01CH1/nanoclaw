@@ -114,12 +114,12 @@ DOCKER: running
   it('updates env content without dropping existing entries', () => {
     const content = upsertEnvContent('EXISTING=yes\nASSISTANT_NAME=Andy\n', {
       ASSISTANT_NAME: 'Nova',
-      TELEGRAM_BOT_TOKEN: '123:abc',
+      TELEGRAM_BOT_TOKEN: '123456:telegram_token_value_1234567890',
     });
 
     expect(content).toContain('EXISTING=yes');
     expect(content).toContain('ASSISTANT_NAME=Nova');
-    expect(content).toContain('TELEGRAM_BOT_TOKEN=123:abc');
+    expect(content).toContain('TELEGRAM_BOT_TOKEN=123456:telegram_token_value_1234567890');
   });
 
   it('reads env values from the target project root', () => {
@@ -127,14 +127,14 @@ DOCKER: running
     writeProjectFile(
       projectRoot,
       '.env',
-      'ASSISTANT_NAME=Nova\nTELEGRAM_BOT_TOKEN=123:abc\n',
+      'ASSISTANT_NAME=Nova\nTELEGRAM_BOT_TOKEN=123456:telegram_token_value_1234567890\n',
     );
 
     expect(
       readProjectEnvValues(projectRoot, ['ASSISTANT_NAME', 'TELEGRAM_BOT_TOKEN']),
     ).toEqual({
       ASSISTANT_NAME: 'Nova',
-      TELEGRAM_BOT_TOKEN: '123:abc',
+      TELEGRAM_BOT_TOKEN: '123456:telegram_token_value_1234567890',
     });
   });
 
@@ -208,12 +208,99 @@ DOCKER: running
     expect((prompter.note as any).mock.calls[0][0]).toContain('is required');
   });
 
+  it('re-prompts token and channel id inputs until they match the expected format', async () => {
+    const projectRoot = createTempProject();
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'bad-token', '123456:telegram_token_value_1234567890_valid_token_value_123456', 'not-an-id', '123456', 'Control chat'],
+      multiselect: [['Telegram']],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+NODE: installed
+NPM: installed
+BUILD_TOOLS: ready
+HOMEBREW: not_found
+APT_GET: installed
+DNF: not_found
+YUM: not_found
+APPLE_CONTAINER: not_found
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+        writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step register -- --jid tg:123456 --name Control chat --trigger @Andy --folder telegram_main --channel telegram --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect((prompter.note as any).mock.calls.some(([message]: [string]) =>
+      message.includes('bot token from @BotFather'),
+    )).toBe(true);
+    expect((prompter.note as any).mock.calls.some(([message]: [string]) =>
+      message.includes('Telegram chat IDs are numeric'),
+    )).toBe(true);
+  });
+
   it('re-prompts until at least one channel is selected', async () => {
     const projectRoot = createTempProject();
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [[], ['Telegram']],
       confirm: [false],
     });
@@ -396,7 +483,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Nova', '@Nova', '123:abc', '123456', 'Control chat'],
+      input: ['Nova', '@Nova', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       confirm: [false],
     });
@@ -463,7 +550,7 @@ STATUS: success
     await runGuidedSetup(deps);
 
     const envContent = fs.readFileSync(path.join(projectRoot, '.env'), 'utf-8');
-    expect(envContent).toContain('TELEGRAM_BOT_TOKEN=123:abc');
+    expect(envContent).toContain('TELEGRAM_BOT_TOKEN=123456:telegram_token_value_1234567890');
     expect(envContent).toContain('ASSISTANT_NAME=Andy');
     expect(fs.existsSync(path.join(projectRoot, 'data/env/env'))).toBe(true);
   });
@@ -473,7 +560,7 @@ STATUS: success
     writeProjectFile(
       projectRoot,
       '.env',
-      'TELEGRAM_BOT_TOKEN=123:abc\nASSISTANT_NAME=Andy\n',
+      'TELEGRAM_BOT_TOKEN=123456:telegram_token_value_1234567890\nASSISTANT_NAME=Andy\n',
     );
 
     const prompter = createPrompter({
@@ -939,7 +1026,7 @@ STATUS: success
     );
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['Apple Container', 'No'],
       confirm: [false],
@@ -1036,7 +1123,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Nova', '@Nova', '123:abc', '123456', 'Control chat'],
+      input: ['Nova', '@Nova', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['No'],
       confirm: [false],
@@ -1126,7 +1213,7 @@ STATUS: success
     writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['No'],
       confirm: [false],
@@ -1230,7 +1317,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['No'],
       confirm: [false],
@@ -1319,7 +1406,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['No'],
       confirm: [false],
@@ -1465,7 +1552,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['Apple Container', 'No'],
       confirm: [false],
@@ -1574,7 +1661,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['No'],
       confirm: [false],
@@ -1680,7 +1767,7 @@ STATUS: success
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['Docker', 'No'],
       confirm: [false],
@@ -1833,7 +1920,7 @@ STATUS: success
     );
 
     const prompter = createPrompter({
-      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      input: ['Andy', '@Andy', '123456:telegram_token_value_1234567890', '123456', 'Control chat'],
       multiselect: [['Telegram']],
       select: ['Apple Container', 'No'],
       confirm: [false],

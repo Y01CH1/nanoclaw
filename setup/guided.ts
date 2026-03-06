@@ -153,6 +153,54 @@ const CHANNEL_REGISTRATION_GUIDES: Record<
   ],
 };
 
+const TOKEN_VALIDATORS: Partial<
+  Record<
+    Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+    Record<string, { pattern: RegExp; help: string }>
+  >
+> = {
+  telegram: {
+    TELEGRAM_BOT_TOKEN: {
+      pattern: /^\d{5,}:[A-Za-z0-9_-]{20,}$/,
+      help: 'Expected format: <digits>:<bot token from @BotFather>.',
+    },
+  },
+  slack: {
+    SLACK_BOT_TOKEN: {
+      pattern: /^xoxb-[A-Za-z0-9-]+$/,
+      help: 'Expected a Slack bot token starting with xoxb-.',
+    },
+    SLACK_APP_TOKEN: {
+      pattern: /^xapp-[A-Za-z0-9-]+$/,
+      help: 'Expected a Slack app token starting with xapp-.',
+    },
+  },
+  discord: {
+    DISCORD_BOT_TOKEN: {
+      pattern: /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
+      help: 'Expected a Discord bot token with three dot-separated segments.',
+    },
+  },
+};
+
+const CHANNEL_ID_VALIDATORS: Record<
+  Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+  { pattern: RegExp; help: string }
+> = {
+  telegram: {
+    pattern: /^-?\d+$/,
+    help: 'Telegram chat IDs are numeric, for example 123456 or -1001234567890.',
+  },
+  slack: {
+    pattern: /^[A-Z0-9]{8,}$/,
+    help: 'Slack channel IDs are uppercase IDs such as C0123456789.',
+  },
+  discord: {
+    pattern: /^\d{5,}$/,
+    help: 'Discord channel IDs are long numeric snowflakes.',
+  },
+};
+
 const GMAIL_EMAIL_INSTRUCTIONS = `## Email Notifications
 
 When you receive an email notification (messages starting with \`[Email from ...\`), inform the user about it but do NOT reply to the email unless specifically asked. You have Gmail tools available - use them only when the user explicitly asks you to reply, forward, or take action on an email.
@@ -530,6 +578,39 @@ export async function promptRequiredInput(
     const value = (await prompter.input(message, defaultValue)).trim();
     if (value) return value;
     prompter.note(`[setup] ${message} is required.`);
+  }
+}
+
+function validateTokenValue(
+  channel: Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+  key: string,
+  value: string,
+): string | null {
+  const validator = TOKEN_VALIDATORS[channel]?.[key];
+  if (!validator || validator.pattern.test(value.trim())) return null;
+  return validator.help;
+}
+
+function validateChannelId(
+  channel: Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+  value: string,
+): string | null {
+  const validator = CHANNEL_ID_VALIDATORS[channel];
+  if (validator.pattern.test(value.trim())) return null;
+  return validator.help;
+}
+
+async function promptValidatedInput(
+  prompter: Prompter,
+  message: string,
+  validate: (value: string) => string | null,
+  defaultValue = '',
+): Promise<string> {
+  while (true) {
+    const value = await promptRequiredInput(prompter, message, defaultValue);
+    const validationError = validate(value);
+    if (!validationError) return value;
+    prompter.note(`[setup] ${validationError}`);
   }
 }
 
@@ -1013,9 +1094,10 @@ async function configureTokenChannel(
     const updates: Record<string, string> = {};
     for (const key of keys) {
       const existing = currentEnv[key] || '';
-      updates[key] = await promptRequiredInput(
+      updates[key] = await promptValidatedInput(
         deps.prompter,
         `Enter ${key}`,
+        (value) => validateTokenValue(channel, key, value),
         existing,
       );
     }
@@ -1039,9 +1121,10 @@ async function configureTokenChannel(
     }
   }
 
-  const rawJid = await promptRequiredInput(
+  const rawJid = await promptValidatedInput(
     deps.prompter,
     `Enter the ${CHANNEL_LABELS[channel]} chat or channel ID`,
+    (value) => validateChannelId(channel, value),
   );
   const name = await promptRequiredInput(
     deps.prompter,
