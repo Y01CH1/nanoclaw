@@ -9,6 +9,7 @@ const STEPS: Record<
   string,
   () => Promise<{ run: (args: string[]) => Promise<void> }>
 > = {
+  guided: () => import('./guided.js'),
   environment: () => import('./environment.js'),
   container: () => import('./container.js'),
   groups: () => import('./groups.js'),

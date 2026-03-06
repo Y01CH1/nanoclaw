@@ -30,7 +30,7 @@ fi
 
 if [ "$step" = "guided" ]; then
   shift || true
-  npx tsx setup/guided.ts "$@"
+  npm run setup -- --step guided -- "$@"
 else
   shift || true
   npm run setup -- --step "$step" -- "$@"
