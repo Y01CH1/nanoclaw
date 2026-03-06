@@ -30,6 +30,8 @@ cd NanoClaw
 ./scripts/setup.sh
 ```
 
+`./scripts/setup.sh` launches a guided terminal setup. It can install a channel skill, collect credentials, run channel authentication, register the first chat, configure mounts, start the service, and finish with `verify`.
+
 Run verification with:
 
 ```bash
@@ -69,7 +71,7 @@ Legacy skills to script mapping:
 **Customization = code changes.** No configuration sprawl. Want different behavior? Modify the code. The codebase is small enough that it's safe to make changes.
 
 **AI-native.**
-- No installation wizard; script-first setup (`./scripts/setup.sh`).
+- Guided terminal setup via `./scripts/setup.sh` instead of a web installer.
 - No monitoring dashboard; ask the agent what's happening.
 - No debugging tools; describe the problem and let the agent patch it.
 
@@ -79,7 +81,7 @@ Legacy skills to script mapping:
 
 ## What It Supports
 
-- **Multi-channel messaging** - Talk to your assistant from WhatsApp, Telegram, Discord, Slack, or Gmail. Add channels with skills like `/add-whatsapp` or `/add-telegram`. Run one or many at the same time.
+- **Multi-channel messaging** - Talk to your assistant from WhatsApp, Telegram, Discord, Slack, or Gmail. `./scripts/setup.sh` can install and configure WhatsApp, Telegram, Slack, or Discord for you; manual skills still work when you want explicit control.
 - **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it.
 - **Main channel** - Your private channel (self-chat) for admin control; every group is completely isolated
 - **Scheduled tasks** - Recurring jobs that run the configured backend and can message you back
