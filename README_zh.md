@@ -30,7 +30,7 @@ cd nanoclaw
 ./scripts/setup.sh
 ```
 
-`./scripts/setup.sh` 现在会启动一个引导式终端安装流程，可以自动安装频道 skill、收集凭据、执行频道认证、注册第一个聊天、配置挂载、启动服务，并最终执行 `verify`。
+`./scripts/setup.sh` 现在会启动一个引导式终端安装流程，可以自动选择 Docker 或 Apple Container、安装频道 skill、收集凭据、执行频道认证、注册第一个聊天、可选启用 Gmail 集成、配置挂载、启动服务，并最终执行 `verify`。
 
 然后运行：
 
@@ -71,7 +71,7 @@ Codex 运行时说明：
 
 ## 功能支持
 
-- **多渠道消息** - 通过 WhatsApp、Telegram、Discord、Slack 或 Gmail 与您的助手对话。`./scripts/setup.sh` 可以直接帮你安装和配置 WhatsApp、Telegram、Slack、Discord；如果你想手动控制，也仍然可以使用 skill。
+- **多渠道消息** - 通过 WhatsApp、Telegram、Discord、Slack 或 Gmail 与您的助手对话。`./scripts/setup.sh` 可以直接帮你安装和配置 WhatsApp、Telegram、Slack、Discord，并可选启用 Gmail 集成；如果你想手动控制，也仍然可以使用 skill。
 - **隔离的群组上下文** - 每个群组都拥有独立的 `CLAUDE.md` 记忆和隔离的文件系统。它们在各自的容器沙箱中运行，且仅挂载所需的文件系统。
 - **主频道** - 您的私有频道（self-chat），用于管理控制；其他所有群组都完全隔离
 - **计划任务** - 运行当前配置后端的周期性作业，并可以给您回发消息
