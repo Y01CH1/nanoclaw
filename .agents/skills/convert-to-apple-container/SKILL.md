@@ -5,7 +5,7 @@ description: Switch from Docker to Apple Container for macOS-native container is
 
 # Convert to Apple Container
 
-This skill switches NanoClaw's container runtime from Docker to Apple Container (macOS-only). It uses the skills engine for deterministic code changes, then walks through verification.
+This skill switches NanoClaw's default container runtime from Docker to Apple Container (macOS-only). It uses the skills engine for deterministic code changes, then walks through verification.
 
 **What this changes:**
 - Container runtime binary: `docker` → `container`
@@ -13,13 +13,11 @@ This skill switches NanoClaw's container runtime from Docker to Apple Container 
 - Startup check: `docker info` → `container system status` (with auto-start)
 - Orphan detection: `docker ps --filter` → `container ls --format json`
 - Build script default: `docker` → `container`
-- Dockerfile entrypoint: `.env` shadowing via `mount --bind` inside the container (Apple Container only supports directory mounts, not file mounts like Docker's `/dev/null` overlay)
-- Container runner: main-group containers start as root for `mount --bind`, then drop privileges via `setpriv`
 
 **What stays the same:**
+- Codex-only runtime, wrapper, and session handling
 - Mount security/allowlist validation
 - All exported interfaces and IPC protocol
-- Non-main container behavior (still uses `--user` flag)
 - All other functionality
 
 ## Prerequisites
@@ -74,15 +72,11 @@ npx tsx scripts/apply-skill.ts .agents/skills/convert-to-apple-container
 This deterministically:
 - Replaces `src/container-runtime.ts` with the Apple Container implementation
 - Replaces `src/container-runtime.test.ts` with Apple Container-specific tests
-- Updates `src/container-runner.ts` with .env shadow mount fix and privilege dropping
-- Updates `container/Dockerfile` with entrypoint that shadows .env via `mount --bind`
 - Updates `container/build.sh` to default to `container` runtime
 - Records the application in `.nanoclaw/state.yaml`
 
 If the apply reports merge conflicts, read the intent files:
 - `modify/src/container-runtime.ts.intent.md` — what changed and invariants
-- `modify/src/container-runner.ts.intent.md` — .env shadow and privilege drop changes
-- `modify/container/Dockerfile.intent.md` — entrypoint changes for .env shadowing
 - `modify/container/build.sh.intent.md` — what changed for build script
 
 ### Validate code changes
@@ -178,6 +172,4 @@ Check directory permissions on the host. The container runs as uid 1000.
 |------|----------------|
 | `src/container-runtime.ts` | Full replacement — Docker → Apple Container API |
 | `src/container-runtime.test.ts` | Full replacement — tests for Apple Container behavior |
-| `src/container-runner.ts` | .env shadow mount removed, main containers start as root with privilege drop |
-| `container/Dockerfile` | Entrypoint: `mount --bind` for .env shadowing, `setpriv` privilege drop |
 | `container/build.sh` | Default runtime: `docker` → `container` |

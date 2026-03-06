@@ -1,7 +1,7 @@
 # Intent: src/container-runtime.ts modifications
 
 ## What changed
-Replaced Docker runtime with Apple Container runtime. This is a full file replacement — the exported API is identical, only the implementation differs.
+Replaced the default Docker runtime with Apple Container. This is a full file replacement and must stay Codex-only; it should not reintroduce legacy session directories, legacy SDK assumptions, or backend switching.
 
 ## Key sections
 
@@ -25,6 +25,7 @@ Replaced Docker runtime with Apple Container runtime. This is a full file replac
 - `stopContainer` implementation is unchanged (`<bin> stop <name>`)
 - Logger usage pattern is unchanged
 - Error handling pattern is unchanged
+- No references to legacy session directories or rollback-window behavior
 
 ## Must-keep
 - The exported function signatures (consumed by container-runner.ts and index.ts)

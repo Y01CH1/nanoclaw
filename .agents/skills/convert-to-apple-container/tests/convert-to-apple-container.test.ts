@@ -11,9 +11,11 @@ describe('convert-to-apple-container skill package', () => {
 
     const content = fs.readFileSync(manifestPath, 'utf-8');
     expect(content).toContain('skill: convert-to-apple-container');
-    expect(content).toContain('version: 1.0.0');
+    expect(content).toContain('version: 2.0.0');
     expect(content).toContain('container-runtime.ts');
     expect(content).toContain('container/build.sh');
+    expect(content).not.toContain('src/container-runner.ts');
+    expect(content).not.toContain('container/Dockerfile');
   });
 
   it('has all modified files', () => {
@@ -42,6 +44,15 @@ describe('convert-to-apple-container skill package', () => {
     expect(fs.existsSync(buildIntent)).toBe(true);
   });
 
+  it('does not ship stale Claude-era patch snapshots', () => {
+    expect(
+      fs.existsSync(path.join(skillDir, 'modify', 'src', 'container-runner.ts')),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(skillDir, 'modify', 'container', 'Dockerfile')),
+    ).toBe(false);
+  });
+
   it('has build.sh with Apple Container default', () => {
     const buildFile = path.join(skillDir, 'modify', 'container', 'build.sh');
     expect(fs.existsSync(buildFile)).toBe(true);
@@ -65,5 +76,18 @@ describe('convert-to-apple-container skill package', () => {
     expect(content).not.toContain('docker info');
     expect(content).not.toContain("'-v'");
     expect(content).not.toContain('--filter name=');
+  });
+
+  it('is cleaned to Codex-only semantics', () => {
+    const skillMd = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8');
+    const runtimeIntent = fs.readFileSync(
+      path.join(skillDir, 'modify', 'src', 'container-runtime.ts.intent.md'),
+      'utf-8',
+    );
+
+    expect(skillMd).not.toContain('.claude');
+    expect(skillMd).not.toContain('Claude rollback');
+    expect(runtimeIntent).not.toContain('.claude');
+    expect(runtimeIntent).not.toContain('Claude');
   });
 });

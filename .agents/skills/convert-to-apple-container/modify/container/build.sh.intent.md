@@ -11,6 +11,7 @@ Changed the default container runtime from `docker` to `container` (Apple Contai
 - The `CONTAINER_RUNTIME` environment variable override still works
 - IMAGE_NAME and TAG logic unchanged
 - Build and test echo commands unchanged
+- No backend-selection environment variables or Claude-specific defaults
 
 ## Must-keep
 - The `CONTAINER_RUNTIME` env var override pattern
