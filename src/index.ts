@@ -469,10 +469,7 @@ async function main(): Promise<void> {
     ensureContainerSystemRunning();
   } catch (err) {
     const runtimeError = err instanceof Error ? err.message : String(err);
-    logger.fatal(
-      { err },
-      buildRuntimeUnavailableMessage(runtimeError),
-    );
+    logger.fatal({ err }, buildRuntimeUnavailableMessage(runtimeError));
     process.exit(1);
   }
   initDatabase();

@@ -18,7 +18,9 @@ describe('buildNoChannelsConnectedMessage', () => {
     const message = buildNoChannelsConnectedMessage(['telegram', 'discord']);
 
     expect(message).toContain('Installed channels: telegram, discord.');
-    expect(message).toContain('credentials or chat registrations are incomplete');
+    expect(message).toContain(
+      'credentials or chat registrations are incomplete',
+    );
     expect(message).toContain('./scripts/verify.sh');
   });
 
