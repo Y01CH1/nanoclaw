@@ -6,8 +6,6 @@ import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { fileURLToPath } from 'url';
 
-import { readEnvFile } from '../src/env.js';
-
 type ChannelName = 'whatsapp' | 'telegram' | 'slack' | 'discord' | 'gmail';
 type GmailMode = 'disabled' | 'tool-only' | 'channel';
 
@@ -205,6 +203,41 @@ export function upsertEnvContent(
   }
 
   return `${nextLines.join('\n').replace(/\n+$/u, '')}\n`;
+}
+
+export function readProjectEnvValues(
+  projectRoot: string,
+  keys: string[],
+): Record<string, string> {
+  const envPath = path.join(projectRoot, '.env');
+  let content = '';
+  try {
+    content = fs.readFileSync(envPath, 'utf-8');
+  } catch {
+    return {};
+  }
+
+  const wanted = new Set(keys);
+  const values: Record<string, string> = {};
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const sep = trimmed.indexOf('=');
+    if (sep === -1) continue;
+    const key = trimmed.slice(0, sep).trim();
+    if (!wanted.has(key)) continue;
+    let value = trimmed.slice(sep + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (value) values[key] = value;
+  }
+
+  return values;
 }
 
 export async function promptRequiredInput(
@@ -499,17 +532,28 @@ async function configureTokenChannel(
   const channel = setup.channel as Exclude<ChannelName, 'whatsapp'>;
   deps.prompter.note(`[setup] ${MANUAL_CHANNEL_HELP[channel]}`);
 
-  const currentEnv = readEnvFile(TOKEN_ENV_KEYS[channel]);
-  const updates: Record<string, string> = {};
-  for (const key of TOKEN_ENV_KEYS[channel]) {
-    const existing = currentEnv[key] || '';
-    updates[key] = await promptRequiredInput(
-      deps.prompter,
-      `Enter ${key}`,
-      existing,
-    );
+  const keys = TOKEN_ENV_KEYS[channel];
+  const currentEnv = readProjectEnvValues(deps.projectRoot, keys);
+  const hasExistingCredentials = keys.length > 0 && keys.every((key) => Boolean(currentEnv[key]));
+
+  if (
+    !hasExistingCredentials ||
+    !(await deps.prompter.confirm(
+      `Reuse existing ${CHANNEL_LABELS[channel]} credentials?`,
+      true,
+    ))
+  ) {
+    const updates: Record<string, string> = {};
+    for (const key of keys) {
+      const existing = currentEnv[key] || '';
+      updates[key] = await promptRequiredInput(
+        deps.prompter,
+        `Enter ${key}`,
+        existing,
+      );
+    }
+    writeEnvUpdates(deps.projectRoot, updates);
   }
-  writeEnvUpdates(deps.projectRoot, updates);
   syncEnvSnapshot(deps.projectRoot);
 
   if (
@@ -560,7 +604,15 @@ async function configureWhatsApp(
   const hasAuth =
     fs.existsSync(authDir) && fs.readdirSync(authDir).includes('creds.json');
 
-  if (!hasAuth) {
+  const shouldReuseAuth =
+    hasAuth &&
+    (await deps.prompter.confirm(
+      'Reuse existing WhatsApp authentication?',
+      true,
+    ));
+
+  if (!shouldReuseAuth) {
+    fs.rmSync(authDir, { recursive: true, force: true });
     const isHeadless = environmentStatus.fields.IS_HEADLESS === 'true';
     const isWsl = environmentStatus.fields.IS_WSL === 'true';
     const methods = isHeadless && !isWsl
@@ -824,6 +876,17 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
 
   const gmailDir = getGmailConfigDir();
   const keysPath = path.join(gmailDir, 'gcp-oauth.keys.json');
+  const credentialsPath = path.join(gmailDir, 'credentials.json');
+  const hasExistingAuth =
+    fs.existsSync(keysPath) && fs.existsSync(credentialsPath);
+  const shouldReuseAuth =
+    hasExistingAuth &&
+    (await deps.prompter.confirm('Reuse existing Gmail authorization?', true));
+
+  if (!shouldReuseAuth && fs.existsSync(credentialsPath)) {
+    fs.rmSync(credentialsPath, { force: true });
+  }
+
   if (!fs.existsSync(keysPath)) {
     const sourceKind = await deps.prompter.select(
       'How do you want to provide the Gmail OAuth client JSON?',
@@ -845,18 +908,20 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
     }
   }
 
-  deps.prompter.note(
-    '[setup] Starting Gmail OAuth authorization in the browser.',
-  );
-  const authResult = await deps.runCommand('npx', [
-    '-y',
-    '@gongrzhe/server-gmail-autoauth-mcp',
-    'auth',
-  ]);
-  if (authResult.code !== 0) {
-    throw new Error(
-      `Gmail authorization failed: ${authResult.stderr || authResult.stdout}`,
+  if (!shouldReuseAuth) {
+    deps.prompter.note(
+      '[setup] Starting Gmail OAuth authorization in the browser.',
     );
+    const authResult = await deps.runCommand('npx', [
+      '-y',
+      '@gongrzhe/server-gmail-autoauth-mcp',
+      'auth',
+    ]);
+    if (authResult.code !== 0) {
+      throw new Error(
+        `Gmail authorization failed: ${authResult.stderr || authResult.stdout}`,
+      );
+    }
   }
 
   if (gmailMode === 'channel') {
@@ -894,10 +959,11 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
 
   await runSetupStep(deps, 'container', ['--runtime', runtime]);
 
+  const projectEnv = readProjectEnvValues(deps.projectRoot, ['ASSISTANT_NAME']);
   const assistantName = await promptRequiredInput(
     deps.prompter,
     'Assistant name',
-    readEnvFile(['ASSISTANT_NAME']).ASSISTANT_NAME || 'Andy',
+    projectEnv.ASSISTANT_NAME || 'Andy',
   );
   const trigger = await promptRequiredInput(
     deps.prompter,
