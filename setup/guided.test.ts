@@ -52,6 +52,34 @@ function seedGmailToolOnlyTargets(projectRoot: string): void {
   );
 }
 
+function seedGmailChannelTargets(projectRoot: string): void {
+  seedGmailToolOnlyTargets(projectRoot);
+  writeProjectFile(projectRoot, 'src/channels/gmail.ts', 'export {};\n');
+  writeProjectFile(projectRoot, 'src/channels/gmail.test.ts', 'export {};\n');
+  writeProjectFile(
+    projectRoot,
+    'src/channels/index.ts',
+    "import './gmail.js';\n// gmail\n",
+  );
+}
+
+function markGmailToolOnlyConfigured(projectRoot: string): void {
+  writeProjectFile(
+    projectRoot,
+    '.nanoclaw/state.yaml',
+    `skills_system_version: "1"
+core_version: "1.2.6"
+applied_skills:
+  - name: gmail
+    version: "1.0.0"
+    applied_at: "2026-03-06T00:00:00.000Z"
+    file_hashes: {}
+    structured_outcomes:
+      mode: tool-only
+`,
+  );
+}
+
 function createPrompter(answers: {
   select?: string[];
   multiselect?: string[][];
@@ -1014,6 +1042,389 @@ STATUS: success
           command === 'npx tsx setup/index.ts --step container -- --runtime docker',
       ),
     ).toHaveLength(2);
+  });
+
+  it('switches Gmail from tool-only to channel mode', async () => {
+    const projectRoot = createTempProject();
+    const fakeHome = path.join(projectRoot, 'home');
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailToolOnlyTargets(projectRoot);
+    markGmailToolOnlyConfigured(projectRoot);
+    writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
+    const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
+    fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'WhatsApp main', oauthSource],
+      multiselect: [['WhatsApp']],
+      select: [
+        'QR code in browser',
+        'Self-chat',
+        'Switch to Email channel',
+        'File path',
+      ],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+        writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
+        writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
+        writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step whatsapp-auth -- --method qr-browser': async () => {
+        writeProjectFile(
+          projectRoot,
+          'store/auth/creds.json',
+          JSON.stringify({ me: { id: '15551234567:1@s.whatsapp.net' } }),
+        );
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: AUTH_WHATSAPP ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step register -- --jid 15551234567@s.whatsapp.net --name WhatsApp main --trigger @Andy --folder whatsapp_main --channel whatsapp --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail': async () => {
+        writeProjectFile(projectRoot, 'src/channels/gmail.ts', 'export {};\n');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx -y @gongrzhe/server-gmail-autoauth-mcp auth': async () => ({
+        code: 0,
+        stdout: 'gmail auth ok',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(fs.existsSync(path.join(projectRoot, 'src/channels/gmail.ts'))).toBe(
+      true,
+    );
+    expect(
+      fs.readFileSync(path.join(projectRoot, '.nanoclaw/state.yaml'), 'utf-8'),
+    ).toContain('mode: channel');
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('switches Gmail from channel mode to tool-only mode', async () => {
+    const projectRoot = createTempProject();
+    const fakeHome = path.join(projectRoot, 'home');
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailChannelTargets(projectRoot);
+    writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
+    const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
+    fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'WhatsApp main', oauthSource],
+      multiselect: [['WhatsApp']],
+      select: [
+        'QR code in browser',
+        'Self-chat',
+        'Switch to Tool-only',
+        'File path',
+      ],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+        writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
+        writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
+        writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step whatsapp-auth -- --method qr-browser': async () => {
+        writeProjectFile(
+          projectRoot,
+          'store/auth/creds.json',
+          JSON.stringify({ me: { id: '15551234567:1@s.whatsapp.net' } }),
+        );
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: AUTH_WHATSAPP ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step register -- --jid 15551234567@s.whatsapp.net --name WhatsApp main --trigger @Andy --folder whatsapp_main --channel whatsapp --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx -y @gongrzhe/server-gmail-autoauth-mcp auth': async () => ({
+        code: 0,
+        stdout: 'gmail auth ok',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(fs.existsSync(path.join(projectRoot, 'src/channels/gmail.ts'))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(projectRoot, '.nanoclaw/state.yaml'), 'utf-8'),
+    ).toContain('mode: tool-only');
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).not.toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('reauthorizes existing Gmail channel mode without refreshing container code', async () => {
+    const projectRoot = createTempProject();
+    const fakeHome = path.join(projectRoot, 'home');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailChannelTargets(projectRoot);
+    writeProjectFile(
+      fakeHome,
+      '.gmail-mcp/gcp-oauth.keys.json',
+      '{"installed":{"client_id":"abc"}}',
+    );
+    writeProjectFile(
+      fakeHome,
+      '.gmail-mcp/credentials.json',
+      '{"refresh_token":"tok"}',
+    );
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'WhatsApp main'],
+      multiselect: [['WhatsApp']],
+      select: ['QR code in browser', 'Self-chat', 'Reauthorize Gmail only'],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+        writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
+        writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
+        writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step whatsapp-auth -- --method qr-browser': async () => {
+        writeProjectFile(
+          projectRoot,
+          'store/auth/creds.json',
+          JSON.stringify({ me: { id: '15551234567:1@s.whatsapp.net' } }),
+        );
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: AUTH_WHATSAPP ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step register -- --jid 15551234567@s.whatsapp.net --name WhatsApp main --trigger @Andy --folder whatsapp_main --channel whatsapp --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx -y @gongrzhe/server-gmail-autoauth-mcp auth': async () => ({
+        code: 0,
+        stdout: 'gmail auth ok',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(fs.existsSync(path.join(projectRoot, 'src/channels/gmail.ts'))).toBe(
+      true,
+    );
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).not.toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(commands).toContain('npx -y @gongrzhe/server-gmail-autoauth-mcp auth');
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(1);
   });
 
   it('offers Apple Container conversion on macOS', async () => {

@@ -421,6 +421,126 @@ function applyGmailToolOnlyMode(projectRoot: string): void {
   );
 }
 
+function removeGmailChannelFiles(projectRoot: string): void {
+  const channelPath = path.join(projectRoot, 'src', 'channels', 'gmail.ts');
+  const channelTestPath = path.join(
+    projectRoot,
+    'src',
+    'channels',
+    'gmail.test.ts',
+  );
+  fs.rmSync(channelPath, { force: true });
+  fs.rmSync(channelTestPath, { force: true });
+
+  const channelIndexPath = path.join(projectRoot, 'src', 'channels', 'index.ts');
+  if (fs.existsSync(channelIndexPath)) {
+    const content = fs.readFileSync(channelIndexPath, 'utf-8');
+    const next = content
+      .replace(/^\s*import '\.\/gmail\.js';\n?/m, '')
+      .replace(/^\/\/ gmail\s*$/m, '// gmail');
+    fs.writeFileSync(channelIndexPath, next);
+  }
+}
+
+function detectConfiguredGmailMode(projectRoot: string): GmailMode {
+  if (fs.existsSync(path.join(projectRoot, 'src', 'channels', 'gmail.ts'))) {
+    return 'channel';
+  }
+
+  const statePath = getSkillsStatePath(projectRoot);
+  if (fs.existsSync(statePath)) {
+    try {
+      const state = parse(fs.readFileSync(statePath, 'utf-8')) as SkillState;
+      const gmailEntry = state.applied_skills.find((skill) => skill.name === 'gmail');
+      if (gmailEntry?.structured_outcomes?.mode === 'tool-only') {
+        return 'tool-only';
+      }
+    } catch {
+      // Fall back to file heuristics below.
+    }
+  }
+
+  const agentRunnerPath = path.join(
+    projectRoot,
+    'container',
+    'agent-runner',
+    'src',
+    'index.ts',
+  );
+  if (
+    fs.existsSync(agentRunnerPath) &&
+    fs
+      .readFileSync(agentRunnerPath, 'utf-8')
+      .includes('@gongrzhe/server-gmail-autoauth-mcp')
+  ) {
+    return 'tool-only';
+  }
+
+  return 'disabled';
+}
+
+type GmailConfigurationPlan = {
+  mode: GmailMode;
+  reauthorize: boolean;
+  codeChanged: boolean;
+};
+
+async function planGmailConfiguration(
+  deps: GuidedDeps,
+  currentMode: GmailMode,
+): Promise<GmailConfigurationPlan> {
+  if (currentMode === 'disabled') {
+    const gmailModeLabel = await deps.prompter.select(
+      'Enable Gmail integration?',
+      ['No', 'Tool-only', 'Email channel'],
+      0,
+    );
+    const gmailMode: GmailMode =
+      gmailModeLabel === 'Tool-only'
+        ? 'tool-only'
+        : gmailModeLabel === 'Email channel'
+          ? 'channel'
+          : 'disabled';
+    return {
+      mode: gmailMode,
+      reauthorize: false,
+      codeChanged: gmailMode !== 'disabled',
+    };
+  }
+
+  const switchLabel =
+    currentMode === 'tool-only'
+      ? 'Switch to Email channel'
+      : 'Switch to Tool-only';
+  const choice = await deps.prompter.select(
+    `Gmail is already configured in ${currentMode} mode. What do you want to do?`,
+    ['Keep current setup', 'Reauthorize Gmail only', switchLabel],
+    0,
+  );
+
+  if (choice === 'Reauthorize Gmail only') {
+    return {
+      mode: currentMode,
+      reauthorize: true,
+      codeChanged: false,
+    };
+  }
+
+  if (choice === switchLabel) {
+    return {
+      mode: currentMode === 'tool-only' ? 'channel' : 'tool-only',
+      reauthorize: false,
+      codeChanged: true,
+    };
+  }
+
+  return {
+    mode: currentMode,
+    reauthorize: false,
+    codeChanged: false,
+  };
+}
+
 export function isAppleContainerConverted(projectRoot: string): boolean {
   const runtimePath = path.join(projectRoot, 'src', 'container-runtime.ts');
   if (!fs.existsSync(runtimePath)) return false;
@@ -1542,31 +1662,50 @@ async function configureMounts(deps: GuidedDeps): Promise<void> {
 }
 
 async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
-  const gmailModeLabel = await deps.prompter.select(
-    'Enable Gmail integration?',
-    ['No', 'Tool-only', 'Email channel'],
-    0,
-  );
-  const gmailMode: GmailMode =
-    gmailModeLabel === 'Tool-only'
-      ? 'tool-only'
-      : gmailModeLabel === 'Email channel'
-        ? 'channel'
-        : 'disabled';
+  const currentMode = detectConfiguredGmailMode(deps.projectRoot);
+  const plan = await planGmailConfiguration(deps, currentMode);
+  const gmailMode = plan.mode;
 
   if (gmailMode === 'disabled') return false;
 
-  if (gmailMode === 'tool-only') {
+  if (plan.codeChanged) {
+    if (gmailMode === 'tool-only') {
+      deps.prompter.note(
+        '[setup] Gmail tool-only mode enables Gmail tools without inbox polling or a Gmail channel.',
+      );
+      if (currentMode === 'channel') {
+        removeGmailChannelFiles(deps.projectRoot);
+      }
+      applyGmailToolOnlyMode(deps.projectRoot);
+    } else {
+      deps.prompter.note(
+        '[setup] Gmail channel mode adds inbox polling and email-triggered agent replies.',
+      );
+      await applyChannelSkill(deps, 'gmail' as never);
+      ensureMainGroupEmailGuidance(deps.projectRoot);
+      upsertAppliedSkill(
+        deps.projectRoot,
+        'gmail',
+        [
+          'src/channels/gmail.ts',
+          'src/container-runner.ts',
+          'container/agent-runner/src/index.ts',
+        ],
+        { mode: 'channel' },
+      );
+    }
+  } else if (gmailMode === 'tool-only') {
     deps.prompter.note(
-      '[setup] Gmail tool-only mode enables Gmail tools without inbox polling or a Gmail channel.',
+      plan.reauthorize
+        ? '[setup] Reauthorizing Gmail tool-only mode.'
+        : '[setup] Keeping existing Gmail tool-only mode.',
     );
-    applyGmailToolOnlyMode(deps.projectRoot);
   } else {
     deps.prompter.note(
-      '[setup] Gmail channel mode adds inbox polling and email-triggered agent replies.',
+      plan.reauthorize
+        ? '[setup] Reauthorizing Gmail channel mode.'
+        : '[setup] Keeping existing Gmail channel mode.',
     );
-    await applyChannelSkill(deps, 'gmail' as never);
-    ensureMainGroupEmailGuidance(deps.projectRoot);
   }
 
   const gmailDir = getGmailConfigDir();
@@ -1575,6 +1714,7 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
   const hasExistingAuth =
     fs.existsSync(keysPath) && fs.existsSync(credentialsPath);
   const shouldReuseAuth =
+    !plan.reauthorize &&
     hasExistingAuth &&
     (await deps.prompter.confirm('Reuse existing Gmail authorization?', true));
 
@@ -1624,7 +1764,7 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
       '[setup] Gmail channel mode delivers incoming emails into the registered main chat.',
     );
   }
-  return true;
+  return plan.codeChanged;
 }
 
 export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
