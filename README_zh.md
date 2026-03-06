@@ -30,7 +30,7 @@ cd nanoclaw
 ./scripts/setup.sh
 ```
 
-`./scripts/setup.sh` 现在会启动一个引导式终端安装流程，可以自动选择 Docker 或 Apple Container、安装频道 skill、收集凭据、执行频道认证、注册第一个聊天、可选启用 Gmail 集成、配置挂载、启动服务，并最终执行 `verify`。
+`./scripts/setup.sh` 现在会启动一个引导式终端安装流程，并会在正式 setup 前自动修复缺失的系统依赖：Homebrew（macOS）、build tools、Node.js/npm，以及所选容器运行时。完成 bootstrap 后，它会继续自动选择 Docker 或 Apple Container、安装频道 skill、收集凭据、执行频道认证、注册第一个聊天、可选启用 Gmail 集成、配置挂载、启动服务，并最终执行 `verify`。
 
 然后运行：
 
@@ -52,6 +52,7 @@ Codex 运行时说明：
 - `AGENT_BACKEND=codex` 不使用 `ANTHROPIC_*` / `CLAUDE_CODE_*`（这些仅保留给 Claude 回退路径）。
 - 如果主机存在 `~/.codex/auth.json`，且某个 group 缺少 `data/sessions/<group>/.codex/auth.json`，NanoClaw 会在首次运行时自动 seed（`verify` 中显示 `configured_pending_seed`）。
 - 若你使用的是 keyring-only 登录态，NanoClaw 无法自动导入；请改用 `CODEX_API_KEY` / `OPENAI_API_KEY`，或把 Codex CLI 凭据存储切换为文件模式。
+- 如果启动因为“没有可用频道”、“认证/注册不完整”或“容器运行时不可用”而失败，NanoClaw 现在会打印明确的恢复指引，并把你引回 `./scripts/setup.sh` / `./scripts/verify.sh`。
 
 ## 设计哲学
 
@@ -63,7 +64,7 @@ Codex 运行时说明：
 
 **定制即代码修改:** 没有繁杂的配置文件。想要不同的行为？直接修改代码。代码库足够小，这样做是安全的。
 
-**AI 原生:** 通过 `./scripts/setup.sh` 提供引导式终端安装，而不是网页安装器。无需监控仪表盘，可直接询问智能体系统状态。无调试工具（描述问题，智能体可协助修复）。
+**AI 原生:** 通过 `./scripts/setup.sh` 提供引导式终端安装，而不是网页安装器。setup 期间会输出结构化 bootstrap / 安装状态块，用于系统依赖修复和阶段诊断。无需监控仪表盘，可直接询问智能体系统状态。无调试工具（描述问题，智能体可协助修复）。
 
 **技能（Skills）优于功能（Features）:** 贡献者不应该向代码库添加新功能（例如支持 Telegram）。相反，他们应该贡献像 `/add-telegram` 这样的技能来改造您的 fork。最终，您得到的是只做您需要事情的整洁代码。
 

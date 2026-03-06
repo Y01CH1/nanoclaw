@@ -30,7 +30,7 @@ cd NanoClaw
 ./scripts/setup.sh
 ```
 
-`./scripts/setup.sh` launches a guided terminal setup. It can choose Docker vs Apple Container, install a channel skill, collect credentials, run channel authentication, register the first chat, optionally enable Gmail integration, configure mounts, start the service, and finish with `verify`.
+`./scripts/setup.sh` launches a guided terminal setup. It now self-heals missing system dependencies before setup continues: Homebrew (macOS), build tools, Node.js/npm, and the selected container runtime. After bootstrap it can choose Docker vs Apple Container, install a channel skill, collect credentials, run channel authentication, register the first chat, optionally enable Gmail integration, configure mounts, start the service, and finish with `verify`.
 
 Run verification with:
 
@@ -52,6 +52,7 @@ Codex runtime notes:
 - Legacy `ANTHROPIC_*` / `CLAUDE_CODE_*` credentials are not used by `AGENT_BACKEND=codex` (they remain for Claude rollback only).
 - If host `~/.codex/auth.json` exists and a group has no `data/sessions/<group>/.codex/auth.json`, NanoClaw seeds it on first run (`configured_pending_seed` state in verify).
 - Keyring-only Codex auth is not auto-imported; use `CODEX_API_KEY` / `OPENAI_API_KEY` or switch Codex CLI credential store to file-based auth.
+- If startup fails because no channels are configured, credentials are incomplete, or the container runtime is unavailable, NanoClaw prints guided recovery messages pointing back to `./scripts/setup.sh` and `./scripts/verify.sh`.
 
 Legacy skills to script mapping:
 
@@ -72,6 +73,7 @@ Legacy skills to script mapping:
 
 **AI-native.**
 - Guided terminal setup via `./scripts/setup.sh` instead of a web installer.
+- Structured bootstrap status blocks for system dependency repair and setup stages.
 - No monitoring dashboard; ask the agent what's happening.
 - No debugging tools; describe the problem and let the agent patch it.
 
