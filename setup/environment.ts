@@ -2,6 +2,7 @@
  * Step: environment — Detect OS, Node, container runtimes, existing config.
  * Replaces 01-check-environment.sh
  */
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,6 +13,48 @@ import { logger } from '../src/logger.js';
 import { commandExists, getPlatform, isHeadless, isWSL } from './platform.js';
 import { emitStatus } from './status.js';
 
+type DependencyPresence = 'installed' | 'not_found';
+type BuildToolsStatus = 'ready' | 'not_found';
+
+export function detectPackageManagers(): Record<
+  'HOMEBREW' | 'APT_GET' | 'DNF' | 'YUM',
+  DependencyPresence
+> {
+  return {
+    HOMEBREW: commandExists('brew') ? 'installed' : 'not_found',
+    APT_GET: commandExists('apt-get') ? 'installed' : 'not_found',
+    DNF: commandExists('dnf') ? 'installed' : 'not_found',
+    YUM: commandExists('yum') ? 'installed' : 'not_found',
+  };
+}
+
+export function detectBuildTools(
+  platform: 'linux' | 'macos' | 'unknown',
+  execCommand: typeof execSync = execSync,
+): BuildToolsStatus {
+  if (platform === 'macos') {
+    if (!commandExists('xcode-select')) return 'not_found';
+    try {
+      const value = execCommand('xcode-select -p', { encoding: 'utf-8' }).trim();
+      return value ? 'ready' : 'not_found';
+    } catch {
+      return 'not_found';
+    }
+  }
+
+  if (platform === 'linux') {
+    const hasCompiler = commandExists('gcc') || commandExists('clang');
+    const hasCppCompiler = commandExists('g++') || commandExists('clang++');
+    const hasMake = commandExists('make');
+    const hasPython = commandExists('python3');
+    return hasCompiler && hasCppCompiler && hasMake && hasPython
+      ? 'ready'
+      : 'not_found';
+  }
+
+  return 'not_found';
+}
+
 export async function run(_args: string[]): Promise<void> {
   const projectRoot = process.cwd();
 
@@ -20,6 +63,10 @@ export async function run(_args: string[]): Promise<void> {
   const platform = getPlatform();
   const wsl = isWSL();
   const headless = isHeadless();
+  const node = commandExists('node') ? 'installed' : 'not_found';
+  const npm = commandExists('npm') ? 'installed' : 'not_found';
+  const packageManagers = detectPackageManagers();
+  const buildTools = detectBuildTools(platform);
 
   // Check Apple Container
   let appleContainer: 'installed' | 'not_found' = 'not_found';
@@ -31,7 +78,6 @@ export async function run(_args: string[]): Promise<void> {
   let docker: 'running' | 'installed_not_running' | 'not_found' = 'not_found';
   if (commandExists('docker')) {
     try {
-      const { execSync } = await import('child_process');
       execSync('docker info', { stdio: 'ignore' });
       docker = 'running';
     } catch {
@@ -70,6 +116,10 @@ export async function run(_args: string[]): Promise<void> {
     {
       platform,
       wsl,
+      node,
+      npm,
+      buildTools,
+      ...packageManagers,
       appleContainer,
       docker,
       hasEnv,
@@ -83,6 +133,10 @@ export async function run(_args: string[]): Promise<void> {
     PLATFORM: platform,
     IS_WSL: wsl,
     IS_HEADLESS: headless,
+    NODE: node,
+    NPM: npm,
+    BUILD_TOOLS: buildTools,
+    ...packageManagers,
     APPLE_CONTAINER: appleContainer,
     DOCKER: docker,
     HAS_ENV: hasEnv,

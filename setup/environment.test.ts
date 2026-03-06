@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import fs from 'fs';
 
 import Database from 'better-sqlite3';
@@ -14,6 +14,50 @@ describe('environment detection', () => {
     const { getPlatform } = await import('./platform.js');
     const platform = getPlatform();
     expect(['macos', 'linux', 'unknown']).toContain(platform);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('detects package managers through commandExists', async () => {
+    const platform = await import('./platform.js');
+    vi.spyOn(platform, 'commandExists').mockImplementation((name: string) =>
+      name === 'brew' || name === 'apt-get',
+    );
+    const { detectPackageManagers } = await import('./environment.js');
+
+    expect(detectPackageManagers()).toEqual({
+      HOMEBREW: 'installed',
+      APT_GET: 'installed',
+      DNF: 'not_found',
+      YUM: 'not_found',
+    });
+  });
+
+  it('reports linux build tools as ready only when the full toolchain exists', async () => {
+    const platform = await import('./platform.js');
+    vi.spyOn(platform, 'commandExists').mockImplementation((name: string) =>
+      ['gcc', 'g++', 'make', 'python3'].includes(name),
+    );
+    const { detectBuildTools } = await import('./environment.js');
+
+    expect(detectBuildTools('linux')).toBe('ready');
+  });
+
+  it('reports macOS build tools as ready when xcode-select returns a path', async () => {
+    const platform = await import('./platform.js');
+    vi.spyOn(platform, 'commandExists').mockImplementation((name: string) =>
+      name === 'xcode-select',
+    );
+    const { detectBuildTools } = await import('./environment.js');
+
+    expect(
+      detectBuildTools(
+        'macos',
+        (() => '/Applications/Xcode.app/Contents/Developer\n') as never,
+      ),
+    ).toBe('ready');
   });
 });
 
@@ -118,4 +162,3 @@ describe('channel auth detection', () => {
     expect(hasAuth('/tmp/nonexistent_auth_dir_xyz')).toBe(false);
   });
 });
-
