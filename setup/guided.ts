@@ -60,6 +60,8 @@ type ChannelSetup = {
   trigger: string;
 };
 
+type RuntimeChoice = 'docker' | 'apple-container';
+
 const CHANNELS: ChannelName[] = ['whatsapp', 'telegram', 'slack', 'discord'];
 
 const CHANNEL_LABELS: Record<ChannelName, string> = {
@@ -90,6 +92,13 @@ const MANUAL_CHANNEL_HELP: Record<Exclude<ChannelName, 'whatsapp'>, string> = {
 
 function getGmailConfigDir(): string {
   return path.join(os.homedir(), '.gmail-mcp');
+}
+
+export function isAppleContainerConverted(projectRoot: string): boolean {
+  const runtimePath = path.join(projectRoot, 'src', 'container-runtime.ts');
+  if (!fs.existsSync(runtimePath)) return false;
+  const content = fs.readFileSync(runtimePath, 'utf-8');
+  return content.includes("CONTAINER_RUNTIME_BIN = 'container'");
 }
 
 export function parseStatusBlocks(outputText: string): SetupStatus[] {
@@ -633,13 +642,47 @@ async function configureWhatsApp(
 }
 
 function resolveRuntime(environmentStatus: SetupStatus): string {
-  if (environmentStatus.fields.PLATFORM === 'linux') {
-    return 'docker';
+  if (environmentStatus.fields.PLATFORM === 'linux') return 'docker';
+  if (environmentStatus.fields.PLATFORM !== 'macos') return '';
+  if (environmentStatus.fields.APPLE_CONTAINER === 'installed') {
+    return 'apple-container';
   }
-  if (environmentStatus.fields.DOCKER === 'running') {
+  if (
+    environmentStatus.fields.DOCKER === 'running' ||
+    environmentStatus.fields.DOCKER === 'installed_not_running'
+  ) {
     return 'docker';
   }
   return '';
+}
+
+async function selectRuntime(
+  deps: GuidedDeps,
+  environmentStatus: SetupStatus,
+): Promise<RuntimeChoice> {
+  if (environmentStatus.fields.PLATFORM === 'linux') return 'docker';
+
+  const hasApple = environmentStatus.fields.APPLE_CONTAINER === 'installed';
+  const hasDocker =
+    environmentStatus.fields.DOCKER === 'running' ||
+    environmentStatus.fields.DOCKER === 'installed_not_running';
+
+  if (hasApple && hasDocker) {
+    const choice = await deps.prompter.select(
+      'Which container runtime should NanoClaw use?',
+      ['Docker', 'Apple Container'],
+      0,
+    );
+    return choice === 'Apple Container' ? 'apple-container' : 'docker';
+  }
+
+  const fallback = resolveRuntime(environmentStatus);
+  if (!fallback) {
+    throw new Error(
+      'No supported container runtime detected. Start Docker or install Apple Container, then rerun ./scripts/setup.sh',
+    );
+  }
+  return fallback as RuntimeChoice;
 }
 
 function buildChannelSetups(
@@ -746,12 +789,25 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
   deps.prompter.note('[setup] Starting guided NanoClaw setup');
 
   const environmentStatus = await runSetupStep(deps, 'environment');
-  const runtime = resolveRuntime(environmentStatus);
+  const runtime = await selectRuntime(deps, environmentStatus);
 
-  if (!runtime) {
-    throw new Error(
-      'No supported container runtime detected. Start Docker, then rerun ./scripts/setup.sh',
+  if (
+    runtime === 'apple-container' &&
+    !isAppleContainerConverted(deps.projectRoot)
+  ) {
+    deps.prompter.note(
+      '[setup] Converting this checkout to Apple Container runtime.',
     );
+    const result = await deps.runCommand('npx', [
+      'tsx',
+      'scripts/apply-skill.ts',
+      '.claude/skills/convert-to-apple-container',
+    ]);
+    if (result.code !== 0) {
+      throw new Error(
+        `Apple Container conversion failed: ${result.stderr || result.stdout}`,
+      );
+    }
   }
 
   await runSetupStep(deps, 'container', ['--runtime', runtime]);
