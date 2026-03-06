@@ -5,7 +5,7 @@ description: Add Ollama MCP server so the container agent can call local models 
 
 # Add Ollama Integration
 
-This skill adds a stdio-based MCP server that exposes local Ollama models as tools for the container agent. Claude remains the orchestrator but can offload work to local models.
+This skill adds a stdio-based MCP server that exposes local Ollama models as tools for the container agent. Codex remains the orchestrator but can offload work to local models.
 
 Tools added:
 - `ollama_list_models` — lists installed Ollama models

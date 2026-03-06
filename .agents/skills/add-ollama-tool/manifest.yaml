@@ -1,7 +1,7 @@
 skill: ollama
-version: 1.0.0
+version: 2.0.0
 description: "Local Ollama model inference via MCP server"
-core_version: 0.1.0
+core_version: 1.2.6
 adds:
   - container/agent-runner/src/ollama-mcp-stdio.ts
   - scripts/ollama-watch.sh
