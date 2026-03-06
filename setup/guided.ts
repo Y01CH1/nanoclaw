@@ -207,6 +207,18 @@ export function upsertEnvContent(
   return `${nextLines.join('\n').replace(/\n+$/u, '')}\n`;
 }
 
+export async function promptRequiredInput(
+  prompter: Prompter,
+  message: string,
+  defaultValue = '',
+): Promise<string> {
+  while (true) {
+    const value = (await prompter.input(message, defaultValue)).trim();
+    if (value) return value;
+    prompter.note(`[setup] ${message} is required.`);
+  }
+}
+
 export function writeGmailOAuthKeys(
   targetDir: string,
   source: { type: 'path'; value: string } | { type: 'json'; value: string },
@@ -491,7 +503,11 @@ async function configureTokenChannel(
   const updates: Record<string, string> = {};
   for (const key of TOKEN_ENV_KEYS[channel]) {
     const existing = currentEnv[key] || '';
-    updates[key] = await deps.prompter.input(`Enter ${key}`, existing);
+    updates[key] = await promptRequiredInput(
+      deps.prompter,
+      `Enter ${key}`,
+      existing,
+    );
   }
   writeEnvUpdates(deps.projectRoot, updates);
   syncEnvSnapshot(deps.projectRoot);
@@ -506,10 +522,12 @@ async function configureTokenChannel(
     return;
   }
 
-  const rawJid = await deps.prompter.input(
+  const rawJid = await promptRequiredInput(
+    deps.prompter,
     `Enter the ${CHANNEL_LABELS[channel]} chat or channel ID`,
   );
-  const name = await deps.prompter.input(
+  const name = await promptRequiredInput(
+    deps.prompter,
     `Enter a name for the ${CHANNEL_LABELS[channel]} chat`,
     setup.isMain ? `${CHANNEL_LABELS[channel]} main` : CHANNEL_LABELS[channel],
   );
@@ -565,7 +583,8 @@ async function configureWhatsApp(
     } else {
       const stepArgs = ['--method'];
       if (selectedMethod === 'Pairing code') {
-        const phone = await deps.prompter.input(
+        const phone = await promptRequiredInput(
+          deps.prompter,
           'Enter your phone number with country code (no +)',
         );
         stepArgs.push('pairing-code', '--phone', phone);
@@ -599,7 +618,11 @@ async function configureWhatsApp(
       throw new Error('Unable to determine WhatsApp self-chat JID');
     }
     jid = selfJid;
-    name = await deps.prompter.input('Name for the main chat', 'WhatsApp main');
+    name = await promptRequiredInput(
+      deps.prompter,
+      'Name for the main chat',
+      'WhatsApp main',
+    );
   } else if (target === 'Existing group') {
     await runSetupStep(deps, 'groups');
     const listResult = await deps.runCommand('npx', getSetupCommandArgs('groups', ['--list']));
@@ -624,9 +647,15 @@ async function configureWhatsApp(
   } else {
     jid = normalizeChannelJid(
       'whatsapp',
-      await deps.prompter.input('Enter the WhatsApp JID to register'),
+      await promptRequiredInput(
+        deps.prompter,
+        'Enter the WhatsApp JID to register',
+      ),
     );
-    name = await deps.prompter.input('Enter a name for this WhatsApp chat');
+    name = await promptRequiredInput(
+      deps.prompter,
+      'Enter a name for this WhatsApp chat',
+    );
   }
 
   await runSetupStep(deps, 'register', [
@@ -802,12 +831,14 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
       0,
     );
     if (sourceKind === 'File path') {
-      const sourcePath = await deps.prompter.input(
+      const sourcePath = await promptRequiredInput(
+        deps.prompter,
         'Enter the full path to gcp-oauth.keys.json',
       );
       writeGmailOAuthKeys(gmailDir, { type: 'path', value: sourcePath });
     } else {
-      const jsonText = await deps.prompter.input(
+      const jsonText = await promptRequiredInput(
+        deps.prompter,
         'Paste the Gmail OAuth client JSON',
       );
       writeGmailOAuthKeys(gmailDir, { type: 'json', value: jsonText });
@@ -863,11 +894,13 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
 
   await runSetupStep(deps, 'container', ['--runtime', runtime]);
 
-  const assistantName = await deps.prompter.input(
+  const assistantName = await promptRequiredInput(
+    deps.prompter,
     'Assistant name',
     readEnvFile(['ASSISTANT_NAME']).ASSISTANT_NAME || 'Andy',
   );
-  const trigger = await deps.prompter.input(
+  const trigger = await promptRequiredInput(
+    deps.prompter,
     'Trigger word',
     `@${assistantName}`,
   );

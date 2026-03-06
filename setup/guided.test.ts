@@ -9,6 +9,7 @@ import {
   normalizeChannelJid,
   parseGroupList,
   parseLatestStatus,
+  promptRequiredInput,
   runGuidedSetup,
   sanitizeFolderSlug,
   upsertEnvContent,
@@ -146,6 +147,17 @@ DOCKER: running
       "export const CONTAINER_RUNTIME_BIN = 'docker';\n",
     );
     expect(isAppleContainerConverted(projectRoot)).toBe(false);
+  });
+
+  it('re-prompts until a required value is provided', async () => {
+    const prompter = createPrompter({
+      input: ['', 'value'],
+    });
+
+    const value = await promptRequiredInput(prompter, 'Enter token');
+
+    expect(value).toBe('value');
+    expect((prompter.note as any).mock.calls[0][0]).toContain('is required');
   });
 });
 
