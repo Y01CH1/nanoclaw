@@ -252,6 +252,25 @@ export async function promptRequiredInput(
   }
 }
 
+async function promptRequiredChannelSelection(
+  prompter: Prompter,
+): Promise<ChannelName[]> {
+  while (true) {
+    const selectedLabels = await prompter.multiselect(
+      'Which messaging channels should NanoClaw enable?',
+      CHANNELS.map((channel) => CHANNEL_LABELS[channel]),
+      [0],
+    );
+    const selectedChannels = CHANNELS.filter((channel) =>
+      selectedLabels.includes(CHANNEL_LABELS[channel]),
+    );
+    if (selectedChannels.length > 0) {
+      return selectedChannels;
+    }
+    prompter.note('[setup] Select at least one messaging channel.');
+  }
+}
+
 export function writeGmailOAuthKeys(
   targetDir: string,
   source: { type: 'path'; value: string } | { type: 'json'; value: string },
@@ -971,14 +990,7 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
     `@${assistantName}`,
   );
 
-  const selectedLabels = await deps.prompter.multiselect(
-    'Which messaging channels should NanoClaw enable?',
-    CHANNELS.map((channel) => CHANNEL_LABELS[channel]),
-    [0],
-  );
-  const selectedChannels = CHANNELS.filter((channel) =>
-    selectedLabels.includes(CHANNEL_LABELS[channel]),
-  );
+  const selectedChannels = await promptRequiredChannelSelection(deps.prompter);
   const mainChannelLabel =
     selectedChannels.length === 1
       ? CHANNEL_LABELS[selectedChannels[0]]
