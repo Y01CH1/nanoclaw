@@ -70,6 +70,9 @@ describe('scripts/setup.sh', () => {
     });
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain('=== NANOCLAW SETUP: BOOTSTRAP_SYSTEM_DEPS ===');
+    expect(result.stdout).toContain('=== NANOCLAW SETUP: BOOTSTRAP_BUILD_TOOLS ===');
+    expect(result.stdout).toContain('=== NANOCLAW SETUP: BOOTSTRAP_NODE_RUNTIME ===');
     const commands = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
     expect(commands).toContain('sudo apt-get install -y build-essential python3');
     expect(commands).toContain('sudo apt-get install -y nodejs npm');
@@ -113,6 +116,7 @@ describe('scripts/setup.sh', () => {
     });
 
     expect(result.status).toBe(0);
+    expect(result.stdout).toContain('STATUS: skipped');
     const commands = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
     expect(commands).toEqual(['npm run setup -- --step guided --']);
   });

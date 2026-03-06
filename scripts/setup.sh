@@ -3,6 +3,17 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+emit_status() {
+  local step="$1"
+  shift
+  printf '=== NANOCLAW SETUP: %s ===\n' "$step"
+  while [ "$#" -gt 0 ]; do
+    printf '%s\n' "$1"
+    shift
+  done
+  printf '=== END ===\n'
+}
+
 platform_name() {
   if [ -n "${SETUP_PLATFORM_OVERRIDE:-}" ]; then
     printf '%s\n' "$SETUP_PLATFORM_OVERRIDE"
@@ -60,11 +71,24 @@ linux_package_manager() {
 
 ensure_homebrew() {
   if has_cmd brew; then
+    emit_status "BOOTSTRAP_HOMEBREW" \
+      "STATUS: skipped" \
+      "DETAIL: already_installed"
     return
   fi
 
   echo "[setup] Homebrew not found, installing it"
-  sh -lc 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+  if sh -lc 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; then
+    emit_status "BOOTSTRAP_HOMEBREW" \
+      "STATUS: success" \
+      "DETAIL: installed"
+    return
+  fi
+
+  emit_status "BOOTSTRAP_HOMEBREW" \
+    "STATUS: failed" \
+    "ERROR: homebrew_install_failed"
+  exit 1
 }
 
 ensure_build_tools() {
@@ -73,15 +97,24 @@ ensure_build_tools() {
 
   if [ "$platform" = "macos" ]; then
     if has_cmd xcode-select && xcode-select -p >/dev/null 2>&1; then
+      emit_status "BOOTSTRAP_BUILD_TOOLS" \
+        "STATUS: skipped" \
+        "DETAIL: already_ready"
       return
     fi
 
     echo "[setup] Xcode Command Line Tools not found, installing them"
     xcode-select --install || true
     if ! xcode-select -p >/dev/null 2>&1; then
+      emit_status "BOOTSTRAP_BUILD_TOOLS" \
+        "STATUS: failed" \
+        "ERROR: xcode_cli_tools_missing"
       echo "[setup] Finish the Xcode Command Line Tools installation, then rerun ./scripts/setup.sh"
       exit 1
     fi
+    emit_status "BOOTSTRAP_BUILD_TOOLS" \
+      "STATUS: success" \
+      "DETAIL: installed"
     return
   fi
 
@@ -90,12 +123,18 @@ ensure_build_tools() {
     { has_cmd g++ || has_cmd clang++; } && \
     has_cmd make && \
     has_cmd python3; then
+    emit_status "BOOTSTRAP_BUILD_TOOLS" \
+      "STATUS: skipped" \
+      "DETAIL: already_ready"
     return
   fi
 
   local manager
   manager="$(linux_package_manager)"
   if [ -z "$manager" ]; then
+    emit_status "BOOTSTRAP_BUILD_TOOLS" \
+      "STATUS: failed" \
+      "ERROR: no_supported_package_manager"
     echo "[setup] No supported Linux package manager found for build tools"
     exit 1
   fi
@@ -103,19 +142,40 @@ ensure_build_tools() {
   echo "[setup] Build tools not found, installing them with $manager"
   case "$manager" in
     apt-get)
-      run_privileged apt-get install -y build-essential python3
+      if ! run_privileged apt-get install -y build-essential python3; then
+        emit_status "BOOTSTRAP_BUILD_TOOLS" \
+          "STATUS: failed" \
+          "ERROR: build_tools_install_failed"
+        exit 1
+      fi
       ;;
     dnf)
-      run_privileged dnf install -y gcc gcc-c++ make python3
+      if ! run_privileged dnf install -y gcc gcc-c++ make python3; then
+        emit_status "BOOTSTRAP_BUILD_TOOLS" \
+          "STATUS: failed" \
+          "ERROR: build_tools_install_failed"
+        exit 1
+      fi
       ;;
     yum)
-      run_privileged yum install -y gcc gcc-c++ make python3
+      if ! run_privileged yum install -y gcc gcc-c++ make python3; then
+        emit_status "BOOTSTRAP_BUILD_TOOLS" \
+          "STATUS: failed" \
+          "ERROR: build_tools_install_failed"
+        exit 1
+      fi
       ;;
   esac
+  emit_status "BOOTSTRAP_BUILD_TOOLS" \
+    "STATUS: success" \
+    "DETAIL: installed"
 }
 
 ensure_node_runtime() {
   if has_cmd node && has_cmd npm; then
+    emit_status "BOOTSTRAP_NODE_RUNTIME" \
+      "STATUS: skipped" \
+      "DETAIL: already_installed"
     return
   fi
 
@@ -125,13 +185,24 @@ ensure_node_runtime() {
   if [ "$platform" = "macos" ]; then
     ensure_homebrew
     echo "[setup] Node.js/npm not found, installing them with Homebrew"
-    brew install node
+    if ! brew install node; then
+      emit_status "BOOTSTRAP_NODE_RUNTIME" \
+        "STATUS: failed" \
+        "ERROR: node_install_failed"
+      exit 1
+    fi
+    emit_status "BOOTSTRAP_NODE_RUNTIME" \
+      "STATUS: success" \
+      "DETAIL: installed_with_homebrew"
     return
   fi
 
   local manager
   manager="$(linux_package_manager)"
   if [ -z "$manager" ]; then
+    emit_status "BOOTSTRAP_NODE_RUNTIME" \
+      "STATUS: failed" \
+      "ERROR: no_supported_package_manager"
     echo "[setup] No supported Linux package manager found for Node.js"
     exit 1
   fi
@@ -139,20 +210,44 @@ ensure_node_runtime() {
   echo "[setup] Node.js/npm not found, installing them with $manager"
   case "$manager" in
     apt-get)
-      run_privileged apt-get install -y nodejs npm
+      if ! run_privileged apt-get install -y nodejs npm; then
+        emit_status "BOOTSTRAP_NODE_RUNTIME" \
+          "STATUS: failed" \
+          "ERROR: node_install_failed"
+        exit 1
+      fi
       ;;
     dnf)
-      run_privileged dnf install -y nodejs npm
+      if ! run_privileged dnf install -y nodejs npm; then
+        emit_status "BOOTSTRAP_NODE_RUNTIME" \
+          "STATUS: failed" \
+          "ERROR: node_install_failed"
+        exit 1
+      fi
       ;;
     yum)
-      run_privileged yum install -y nodejs npm
+      if ! run_privileged yum install -y nodejs npm; then
+        emit_status "BOOTSTRAP_NODE_RUNTIME" \
+          "STATUS: failed" \
+          "ERROR: node_install_failed"
+        exit 1
+      fi
       ;;
   esac
+  emit_status "BOOTSTRAP_NODE_RUNTIME" \
+    "STATUS: success" \
+    "DETAIL: installed"
 }
 
 bootstrap_system_dependencies() {
+  emit_status "BOOTSTRAP_SYSTEM_DEPS" \
+    "STATUS: running" \
+    "PLATFORM: $(platform_name)"
   ensure_build_tools
   ensure_node_runtime
+  emit_status "BOOTSTRAP_SYSTEM_DEPS" \
+    "STATUS: success" \
+    "PLATFORM: $(platform_name)"
 }
 
 warn_deprecated_credentials() {
