@@ -275,7 +275,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -354,7 +354,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -438,7 +438,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -537,7 +537,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -619,7 +619,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -701,7 +701,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -786,7 +786,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).not.toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
       commands.filter(
@@ -834,7 +834,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -863,7 +863,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail': async () => {
         writeProjectFile(projectRoot, 'src/channels/gmail.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -917,7 +917,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
       commands.filter(
@@ -972,7 +972,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -1034,7 +1034,7 @@ STATUS: success
     );
     expect(commands).not.toContain('npx -y @gongrzhe/server-gmail-autoauth-mcp auth');
     expect(commands).not.toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
       commands.filter(
@@ -1088,7 +1088,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -1117,7 +1117,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail': async () => {
         writeProjectFile(projectRoot, 'src/channels/gmail.ts', 'export {};\n');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -1165,7 +1165,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
       commands.filter(
@@ -1218,7 +1218,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -1291,7 +1291,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).not.toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
       commands.filter(
@@ -1346,7 +1346,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-whatsapp': async () => {
         writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
         writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
         writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
@@ -1416,7 +1416,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).not.toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(commands).toContain('npx -y @gongrzhe/server-gmail-autoauth-mcp auth');
     expect(
@@ -1457,7 +1457,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/convert-to-apple-container': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/convert-to-apple-container': async () => {
         writeProjectFile(
           projectRoot,
           'src/container-runtime.ts',
@@ -1478,7 +1478,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -1522,7 +1522,7 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).toContain(
-      'npx tsx scripts/apply-skill.ts .claude/skills/convert-to-apple-container',
+      'npx tsx scripts/apply-skill.ts .agents/skills/convert-to-apple-container',
     );
     expect(commands).toContain(
       'npx tsx setup/index.ts --step container -- --runtime apple-container',
@@ -1571,7 +1571,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -1674,7 +1674,7 @@ STATUS: success
           stderr: '',
         };
       },
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -1765,7 +1765,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -1910,7 +1910,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -2004,7 +2004,7 @@ STATUS: success
         stdout: 'running',
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/convert-to-apple-container': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/convert-to-apple-container': async () => {
         writeProjectFile(
           projectRoot,
           'src/container-runtime.ts',
@@ -2020,7 +2020,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -2109,7 +2109,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -2271,7 +2271,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
@@ -2369,7 +2369,7 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+      'npx tsx scripts/apply-skill.ts .agents/skills/add-telegram': async () => {
         writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },

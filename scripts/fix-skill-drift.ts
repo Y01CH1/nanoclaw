@@ -42,7 +42,7 @@ function readManifest(skillDir: string): SkillManifest {
 }
 
 function fixSkill(skillName: string, projectRoot: string): FixResult[] {
-  const skillDir = path.join(projectRoot, '.claude', 'skills', skillName);
+  const skillDir = path.join(projectRoot, '.agents', 'skills', skillName);
   const manifest = readManifest(skillDir);
   const results: FixResult[] = [];
 

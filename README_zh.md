@@ -115,7 +115,7 @@ Codex 运行时说明：
 
 **不要添加功能，而是添加技能。**
 
-如果您想添加 Telegram 支持，不要创建一个 PR 同时添加 Telegram 和 WhatsApp。而是贡献一个技能文件 (`.claude/skills/add-telegram/SKILL.md`)，教智能体流程如何改造一个 NanoClaw 安装以使用 Telegram。
+如果您想添加 Telegram 支持，不要创建一个 PR 同时添加 Telegram 和 WhatsApp。而是贡献一个技能文件 (`.agents/skills/add-telegram/SKILL.md`)，教智能体流程如何改造一个 NanoClaw 安装以使用 Telegram。
 
 然后用户在自己的 fork 上运行 `/add-telegram`，就能得到只做他们需要事情的整洁代码，而不是一个试图支持所有用例的臃肿系统。
 

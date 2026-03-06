@@ -228,7 +228,7 @@ Channels self-register using a barrel-import pattern:
 
 ### Adding a New Channel
 
-To add a new channel, contribute a skill to `.claude/skills/add-<name>/` that:
+To add a new channel, contribute a skill to `.agents/skills/add-<name>/` that:
 
 1. Adds a `src/channels/<name>.ts` file implementing the `Channel` interface
 2. Calls `registerChannel(name, factory)` at module load

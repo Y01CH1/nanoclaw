@@ -98,7 +98,7 @@ function truncate(s: string, max = 300): string {
 
 async function main(): Promise<void> {
   const projectRoot = process.cwd();
-  const skillsDir = path.join(projectRoot, '.claude', 'skills');
+  const skillsDir = path.join(projectRoot, '.agents', 'skills');
 
   // Allow filtering to specific skills via CLI args
   const filterSkills = process.argv.slice(2);

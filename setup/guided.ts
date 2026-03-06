@@ -1162,7 +1162,7 @@ async function applyChannelSkill(
   const result = await deps.runCommand('npx', [
     'tsx',
     'scripts/apply-skill.ts',
-    `.claude/skills/add-${channel}`,
+    `.agents/skills/add-${channel}`,
   ]);
 
   if (result.code !== 0) {
@@ -1807,7 +1807,7 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
       const result = await deps.runCommand('npx', [
         'tsx',
         'scripts/apply-skill.ts',
-        '.claude/skills/convert-to-apple-container',
+        '.agents/skills/convert-to-apple-container',
       ]);
       if (result.code !== 0) {
         throw new Error(result.stderr || result.stdout);
