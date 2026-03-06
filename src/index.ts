@@ -47,6 +47,7 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
+import { buildNoChannelsConnectedMessage } from './startup-guidance.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -510,7 +511,8 @@ async function main(): Promise<void> {
   // Create and connect all registered channels.
   // Each channel self-registers via the barrel import above.
   // Factories return null when credentials are missing, so unconfigured channels are skipped.
-  for (const channelName of getRegisteredChannelNames()) {
+  const installedChannels = getRegisteredChannelNames();
+  for (const channelName of installedChannels) {
     const factory = getChannelFactory(channelName)!;
     const channel = factory(channelOpts);
     if (!channel) {
@@ -524,7 +526,10 @@ async function main(): Promise<void> {
     await channel.connect();
   }
   if (channels.length === 0) {
-    logger.fatal('No channels connected');
+    logger.fatal(
+      { installedChannels },
+      buildNoChannelsConnectedMessage(installedChannels),
+    );
     process.exit(1);
   }
 
