@@ -35,6 +35,23 @@ function writeProjectFile(
   fs.writeFileSync(target, content);
 }
 
+function seedGmailToolOnlyTargets(projectRoot: string): void {
+  const repoRoot = process.cwd();
+  writeProjectFile(
+    projectRoot,
+    'src/container-runner.ts',
+    fs.readFileSync(path.join(repoRoot, 'src', 'container-runner.ts'), 'utf-8'),
+  );
+  writeProjectFile(
+    projectRoot,
+    'container/agent-runner/src/index.ts',
+    fs.readFileSync(
+      path.join(repoRoot, 'container', 'agent-runner', 'src', 'index.ts'),
+      'utf-8',
+    ),
+  );
+}
+
 function createPrompter(answers: {
   select?: string[];
   multiselect?: string[][];
@@ -531,10 +548,145 @@ STATUS: success
     expect((prompter.input as any).mock.calls).toHaveLength(4);
   });
 
-  it('applies and authorizes Gmail when selected', async () => {
+  it('patches Gmail tool-only mode without adding a channel', async () => {
     const projectRoot = createTempProject();
     const fakeHome = path.join(projectRoot, 'home');
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailToolOnlyTargets(projectRoot);
+    writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
+    const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
+    fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'WhatsApp main', oauthSource],
+      multiselect: [['WhatsApp']],
+      select: ['QR code in browser', 'Self-chat', 'Tool-only', 'File path'],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+        writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
+        writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
+        writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step whatsapp-auth -- --method qr-browser': async () => {
+        writeProjectFile(
+          projectRoot,
+          'store/auth/creds.json',
+          JSON.stringify({ me: { id: '15551234567:1@s.whatsapp.net' } }),
+        );
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: AUTH_WHATSAPP ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step register -- --jid 15551234567@s.whatsapp.net --name WhatsApp main --trigger @Andy --folder whatsapp_main --channel whatsapp --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx -y @gongrzhe/server-gmail-autoauth-mcp auth': async () => ({
+        code: 0,
+        stdout: 'gmail auth ok',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(
+      fs.existsSync(path.join(fakeHome, '.gmail-mcp', 'gcp-oauth.keys.json')),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(projectRoot, 'src/channels/gmail.ts'))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(
+        path.join(projectRoot, 'container/agent-runner/src/index.ts'),
+        'utf-8',
+      ),
+    ).toContain('@gongrzhe/server-gmail-autoauth-mcp');
+    expect(
+      fs.readFileSync(path.join(projectRoot, '.nanoclaw/state.yaml'), 'utf-8'),
+    ).toContain('mode: tool-only');
+    expect(
+      fs.existsSync(path.join(projectRoot, 'data/sessions/main/agent-runner-src')),
+    ).toBe(false);
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).not.toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('applies and authorizes Gmail channel mode', async () => {
+    const projectRoot = createTempProject();
+    const fakeHome = path.join(projectRoot, 'home');
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    writeProjectFile(projectRoot, 'groups/main/CLAUDE.md', '## Formatting\n');
+    writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
     const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
     fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
     vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
@@ -636,6 +788,28 @@ STATUS: success
     expect(
       fs.existsSync(path.join(fakeHome, '.gmail-mcp', 'gcp-oauth.keys.json')),
     ).toBe(true);
+    expect(fs.existsSync(path.join(projectRoot, 'src/channels/gmail.ts'))).toBe(
+      true,
+    );
+    expect(
+      fs.readFileSync(path.join(projectRoot, 'groups/main/CLAUDE.md'), 'utf-8'),
+    ).toContain('## Email Notifications');
+    expect(
+      fs.existsSync(path.join(projectRoot, 'data/sessions/main/agent-runner-src')),
+    ).toBe(false);
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(2);
   });
 
   it('reuses existing Gmail authorization when available', async () => {
@@ -643,6 +817,7 @@ STATUS: success
     const fakeHome = path.join(projectRoot, 'home');
     vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailToolOnlyTargets(projectRoot);
     writeProjectFile(
       fakeHome,
       '.gmail-mcp/gcp-oauth.keys.json',
@@ -711,10 +886,6 @@ STATUS: success
 `,
         stderr: '',
       }),
-      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail': async () => {
-        writeProjectFile(projectRoot, 'src/channels/gmail.ts', '');
-        return { code: 0, stdout: '{"success":true}', stderr: '' };
-      },
       'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
         code: 0,
         stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
@@ -747,6 +918,15 @@ STATUS: success
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
     expect(commands).not.toContain('npx -y @gongrzhe/server-gmail-autoauth-mcp auth');
+    expect(commands).not.toContain(
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail',
+    );
+    expect(
+      commands.filter(
+        (command: string) =>
+          command === 'npx tsx setup/index.ts --step container -- --runtime docker',
+      ),
+    ).toHaveLength(2);
   });
 
   it('offers Apple Container conversion on macOS', async () => {

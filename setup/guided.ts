@@ -1,10 +1,14 @@
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
 import { fileURLToPath } from 'url';
+import { parse, stringify } from 'yaml';
+
+import { NANOCLAW_DIR, SKILLS_SCHEMA_VERSION, STATE_FILE } from '../skills-engine/constants.js';
 
 type ChannelName = 'whatsapp' | 'telegram' | 'slack' | 'discord' | 'gmail';
 type GmailMode = 'disabled' | 'tool-only' | 'channel';
@@ -59,6 +63,18 @@ type ChannelSetup = {
 };
 
 type RuntimeChoice = 'docker' | 'apple-container';
+
+type SkillState = {
+  skills_system_version: string;
+  core_version: string;
+  applied_skills: Array<{
+    name: string;
+    version: string;
+    applied_at: string;
+    file_hashes: Record<string, string>;
+    structured_outcomes?: Record<string, unknown>;
+  }>;
+};
 
 const CHANNELS: ChannelName[] = ['whatsapp', 'telegram', 'slack', 'discord'];
 
@@ -132,8 +148,224 @@ const CHANNEL_REGISTRATION_GUIDES: Record<
   ],
 };
 
+const GMAIL_EMAIL_INSTRUCTIONS = `## Email Notifications
+
+When you receive an email notification (messages starting with \`[Email from ...\`), inform the user about it but do NOT reply to the email unless specifically asked. You have Gmail tools available - use them only when the user explicitly asks you to reply, forward, or take action on an email.
+`;
+
 function getGmailConfigDir(): string {
   return path.join(os.homedir(), '.gmail-mcp');
+}
+
+function getSkillsStatePath(projectRoot: string): string {
+  return path.join(projectRoot, NANOCLAW_DIR, STATE_FILE);
+}
+
+function getProjectVersion(projectRoot: string): string {
+  try {
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'),
+    ) as { version?: string };
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+function computeFileHash(filePath: string): string {
+  const content = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+function ensureSkillsState(projectRoot: string): SkillState {
+  const statePath = getSkillsStatePath(projectRoot);
+  if (fs.existsSync(statePath)) {
+    return parse(fs.readFileSync(statePath, 'utf-8')) as SkillState;
+  }
+
+  const state: SkillState = {
+    skills_system_version: SKILLS_SCHEMA_VERSION,
+    core_version: getProjectVersion(projectRoot),
+    applied_skills: [],
+  };
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  fs.writeFileSync(statePath, stringify(state));
+  return state;
+}
+
+function writeSkillsState(projectRoot: string, state: SkillState): void {
+  const statePath = getSkillsStatePath(projectRoot);
+  fs.mkdirSync(path.dirname(statePath), { recursive: true });
+  const tmpPath = `${statePath}.tmp`;
+  fs.writeFileSync(tmpPath, stringify(state));
+  fs.renameSync(tmpPath, statePath);
+}
+
+function upsertAppliedSkill(
+  projectRoot: string,
+  skillName: string,
+  filePaths: string[],
+  structuredOutcomes?: Record<string, unknown>,
+): void {
+  const state = ensureSkillsState(projectRoot);
+  state.applied_skills = state.applied_skills.filter(
+    (skill) => skill.name !== skillName,
+  );
+
+  const fileHashes: Record<string, string> = {};
+  for (const relativePath of filePaths) {
+    const absolutePath = path.join(projectRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) continue;
+    fileHashes[relativePath] = computeFileHash(absolutePath);
+  }
+
+  state.applied_skills.push({
+    name: skillName,
+    version: '1.0.0',
+    applied_at: new Date().toISOString(),
+    file_hashes: fileHashes,
+    structured_outcomes: structuredOutcomes,
+  });
+  writeSkillsState(projectRoot, state);
+}
+
+function ensureSnippet(content: string, anchor: string, snippet: string): string {
+  if (content.includes(snippet.trim())) return content;
+  const index = content.indexOf(anchor);
+  if (index === -1) {
+    throw new Error(`Could not find anchor: ${anchor}`);
+  }
+  return `${content.slice(0, index)}${snippet}${content.slice(index)}`;
+}
+
+function ensureGmailAgentRunnerTools(projectRoot: string): void {
+  const agentRunnerPath = path.join(
+    projectRoot,
+    'container',
+    'agent-runner',
+    'src',
+    'index.ts',
+  );
+  if (!fs.existsSync(agentRunnerPath)) {
+    throw new Error('Missing container/agent-runner/src/index.ts');
+  }
+
+  let content = fs.readFileSync(agentRunnerPath, 'utf-8');
+
+  if (!content.includes("'mcp__gmail__*'")) {
+    const target = "'mcp__nanoclaw__*'";
+    if (!content.includes(target)) {
+      throw new Error('Missing allowedTools nanoclaw anchor for Gmail tool patch');
+    }
+    content = content.replace(
+      target,
+      `${target},\n        'mcp__gmail__*'`,
+    );
+  }
+
+  if (!content.includes('@gongrzhe/server-gmail-autoauth-mcp')) {
+    const anchor = "        nanoclaw: {\n";
+    const snippet =
+      "        gmail: {\n" +
+      "          command: 'npx',\n" +
+      "          args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],\n" +
+      "        },\n";
+    content = ensureSnippet(content, anchor, snippet);
+  }
+
+  fs.writeFileSync(agentRunnerPath, content);
+}
+
+function ensureGmailContainerMount(projectRoot: string): void {
+  const runnerPath = path.join(projectRoot, 'src', 'container-runner.ts');
+  if (!fs.existsSync(runnerPath)) return;
+
+  let content = fs.readFileSync(runnerPath, 'utf-8');
+  if (content.includes('/home/node/.gmail-mcp')) return;
+
+  if (!content.includes("import os from 'os';")) {
+    const importAnchor = "import fs from 'fs';\n";
+    if (!content.includes(importAnchor)) {
+      throw new Error('Missing fs import anchor for Gmail mount patch');
+    }
+    content = content.replace(importAnchor, `${importAnchor}import os from 'os';\n`);
+  }
+
+  if (!content.includes('const homeDir = os.homedir();')) {
+    const homeAnchor = '  const projectRoot = process.cwd();\n';
+    if (!content.includes(homeAnchor)) {
+      throw new Error('Missing project root anchor for Gmail mount patch');
+    }
+    content = content.replace(
+      homeAnchor,
+      `${homeAnchor}  const homeDir = os.homedir();\n`,
+    );
+  }
+
+  const mountAnchor = '  // Per-group IPC namespace: each group gets its own IPC directory\n';
+  const mountSnippet =
+    "  // Gmail credentials directory (for Gmail MCP inside the container)\n" +
+    "  const gmailDir = path.join(homeDir, '.gmail-mcp');\n" +
+    "  if (fs.existsSync(gmailDir)) {\n" +
+    "    mounts.push({\n" +
+    "      hostPath: gmailDir,\n" +
+    "      containerPath: '/home/node/.gmail-mcp',\n" +
+    "      readonly: false, // MCP may need to refresh OAuth tokens\n" +
+    "    });\n" +
+    "  }\n\n";
+  content = ensureSnippet(content, mountAnchor, mountSnippet);
+
+  fs.writeFileSync(runnerPath, content);
+}
+
+function clearStaleAgentRunnerCopies(projectRoot: string): void {
+  const sessionsDir = path.join(projectRoot, 'data', 'sessions');
+  if (!fs.existsSync(sessionsDir)) return;
+
+  for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    fs.rmSync(path.join(sessionsDir, entry.name, 'agent-runner-src'), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
+function ensureMainGroupEmailGuidance(projectRoot: string): void {
+  const guidePath = path.join(projectRoot, 'groups', 'main', 'CLAUDE.md');
+  let content = '';
+  if (fs.existsSync(guidePath)) {
+    content = fs.readFileSync(guidePath, 'utf-8');
+    if (content.includes('## Email Notifications')) return;
+  } else {
+    fs.mkdirSync(path.dirname(guidePath), { recursive: true });
+  }
+
+  const formattingAnchor = '\n## Formatting';
+  if (content.includes(formattingAnchor)) {
+    content = content.replace(
+      formattingAnchor,
+      `\n${GMAIL_EMAIL_INSTRUCTIONS}\n${formattingAnchor.trimStart()}`,
+    );
+  } else {
+    const trimmed = content.trimEnd();
+    content = trimmed
+      ? `${trimmed}\n\n${GMAIL_EMAIL_INSTRUCTIONS}\n`
+      : `${GMAIL_EMAIL_INSTRUCTIONS}\n`;
+  }
+
+  fs.writeFileSync(guidePath, content);
+}
+
+function applyGmailToolOnlyMode(projectRoot: string): void {
+  ensureGmailContainerMount(projectRoot);
+  ensureGmailAgentRunnerTools(projectRoot);
+  upsertAppliedSkill(
+    projectRoot,
+    'gmail',
+    ['src/container-runner.ts', 'container/agent-runner/src/index.ts'],
+    { mode: 'tool-only' },
+  );
 }
 
 export function isAppleContainerConverted(projectRoot: string): boolean {
@@ -1023,7 +1255,7 @@ async function configureMounts(deps: GuidedDeps): Promise<void> {
   ]);
 }
 
-async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
+async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
   const gmailModeLabel = await deps.prompter.select(
     'Enable Gmail integration?',
     ['No', 'Tool-only', 'Email channel'],
@@ -1036,9 +1268,20 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
         ? 'channel'
         : 'disabled';
 
-  if (gmailMode === 'disabled') return;
+  if (gmailMode === 'disabled') return false;
 
-  await applyChannelSkill(deps, 'gmail' as never);
+  if (gmailMode === 'tool-only') {
+    deps.prompter.note(
+      '[setup] Gmail tool-only mode enables Gmail tools without inbox polling or a Gmail channel.',
+    );
+    applyGmailToolOnlyMode(deps.projectRoot);
+  } else {
+    deps.prompter.note(
+      '[setup] Gmail channel mode adds inbox polling and email-triggered agent replies.',
+    );
+    await applyChannelSkill(deps, 'gmail' as never);
+    ensureMainGroupEmailGuidance(deps.projectRoot);
+  }
 
   const gmailDir = getGmailConfigDir();
   const keysPath = path.join(gmailDir, 'gcp-oauth.keys.json');
@@ -1095,6 +1338,7 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
       '[setup] Gmail channel mode delivers incoming emails into the registered main chat.',
     );
   }
+  return true;
 }
 
 export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
@@ -1172,7 +1416,14 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
     }
   }
 
-  await maybeConfigureGmail(deps);
+  const gmailChanged = await maybeConfigureGmail(deps);
+  if (gmailChanged) {
+    deps.prompter.note(
+      '[setup] Refreshing container assets so Gmail changes reach future sessions.',
+    );
+    clearStaleAgentRunnerCopies(deps.projectRoot);
+    await runSetupStep(deps, 'container', ['--runtime', runtime]);
+  }
   await configureMounts(deps);
   await runSetupStep(deps, 'service');
   await runSetupStep(deps, 'verify');
