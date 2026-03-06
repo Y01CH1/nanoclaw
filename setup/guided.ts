@@ -421,6 +421,58 @@ function applyGmailToolOnlyMode(projectRoot: string): void {
   );
 }
 
+function ensureGmailChannelFiles(projectRoot: string): void {
+  const skillRoot = path.join(
+    process.cwd(),
+    '.agents',
+    'skills',
+    'add-gmail',
+    'add',
+    'src',
+    'channels',
+  );
+  const gmailSourcePath = path.join(skillRoot, 'gmail.ts');
+  const gmailTestSourcePath = path.join(skillRoot, 'gmail.test.ts');
+  const gmailTargetPath = path.join(projectRoot, 'src', 'channels', 'gmail.ts');
+  const gmailTestTargetPath = path.join(
+    projectRoot,
+    'src',
+    'channels',
+    'gmail.test.ts',
+  );
+  const channelIndexPath = path.join(projectRoot, 'src', 'channels', 'index.ts');
+  const channelIndexTemplatePath = path.join(
+    process.cwd(),
+    'src',
+    'channels',
+    'index.ts',
+  );
+
+  if (!fs.existsSync(gmailSourcePath) || !fs.existsSync(gmailTestSourcePath)) {
+    throw new Error('Missing .agents/skills/add-gmail channel templates');
+  }
+
+  fs.mkdirSync(path.dirname(gmailTargetPath), { recursive: true });
+  fs.copyFileSync(gmailSourcePath, gmailTargetPath);
+  fs.copyFileSync(gmailTestSourcePath, gmailTestTargetPath);
+
+  if (!fs.existsSync(channelIndexPath)) {
+    if (!fs.existsSync(channelIndexTemplatePath)) {
+      throw new Error('Missing src/channels/index.ts');
+    }
+    fs.mkdirSync(path.dirname(channelIndexPath), { recursive: true });
+    fs.copyFileSync(channelIndexTemplatePath, channelIndexPath);
+  }
+
+  const channelIndex = fs.readFileSync(channelIndexPath, 'utf-8');
+  if (!channelIndex.includes("import './gmail.js';")) {
+    fs.writeFileSync(
+      channelIndexPath,
+      ensureSnippet(channelIndex, '// gmail', "import './gmail.js';\n"),
+    );
+  }
+}
+
 function removeGmailChannelFiles(projectRoot: string): void {
   const channelPath = path.join(projectRoot, 'src', 'channels', 'gmail.ts');
   const channelTestPath = path.join(
@@ -1681,13 +1733,15 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
       deps.prompter.note(
         '[setup] Gmail channel mode adds inbox polling and email-triggered agent replies.',
       );
-      await applyChannelSkill(deps, 'gmail' as never);
+      applyGmailToolOnlyMode(deps.projectRoot);
+      ensureGmailChannelFiles(deps.projectRoot);
       ensureMainGroupEmailGuidance(deps.projectRoot);
       upsertAppliedSkill(
         deps.projectRoot,
         'gmail',
         [
           'src/channels/gmail.ts',
+          'src/channels/gmail.test.ts',
           'src/container-runner.ts',
           'container/agent-runner/src/index.ts',
         ],

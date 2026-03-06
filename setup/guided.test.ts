@@ -800,6 +800,7 @@ STATUS: success
     const projectRoot = createTempProject();
     const fakeHome = path.join(projectRoot, 'home');
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    seedGmailToolOnlyTargets(projectRoot);
     writeProjectFile(projectRoot, 'groups/main/AGENTS.md', '## Formatting\n');
     writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
     const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
@@ -916,7 +917,7 @@ STATUS: success
     const commands = (deps.runCommand as any).mock.calls.map(
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
-    expect(commands).toContain(
+    expect(commands).not.toContain(
       'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
@@ -1049,6 +1050,7 @@ STATUS: success
     const fakeHome = path.join(projectRoot, 'home');
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
     seedGmailToolOnlyTargets(projectRoot);
+    writeProjectFile(projectRoot, 'groups/main/AGENTS.md', '## Formatting\n');
     markGmailToolOnlyConfigured(projectRoot);
     writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
     const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
@@ -1164,7 +1166,7 @@ STATUS: success
     const commands = (deps.runCommand as any).mock.calls.map(
       ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
     );
-    expect(commands).toContain(
+    expect(commands).not.toContain(
       'npx tsx scripts/apply-skill.ts .agents/skills/add-gmail',
     );
     expect(
