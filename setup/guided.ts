@@ -76,6 +76,11 @@ type SkillState = {
   }>;
 };
 
+type RecoverableStageOptions = {
+  retryLabel?: string;
+  remediate?: () => Promise<void>;
+};
+
 const CHANNELS: ChannelName[] = ['whatsapp', 'telegram', 'slack', 'discord'];
 
 const CHANNEL_LABELS: Record<ChannelName, string> = {
@@ -913,6 +918,37 @@ async function runSetupStep(
   return status;
 }
 
+async function runRecoverableStage<T>(
+  deps: GuidedDeps,
+  stage: string,
+  action: () => Promise<T>,
+  options: RecoverableStageOptions = {},
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    deps.prompter.note(`[setup] ${stage} failed: ${message}`);
+
+    if (!options.remediate) {
+      throw new Error(`${stage} failed: ${message}`);
+    }
+
+    deps.prompter.note(
+      `[setup] ${options.retryLabel || `Retrying ${stage} after remediation.`}`,
+    );
+    await options.remediate();
+
+    try {
+      return await action();
+    } catch (retryError) {
+      const retryMessage =
+        retryError instanceof Error ? retryError.message : String(retryError);
+      throw new Error(`${stage} failed after retry: ${retryMessage}`);
+    }
+  }
+}
+
 async function applyChannelSkill(
   deps: GuidedDeps,
   channel: ChannelName,
@@ -1511,18 +1547,31 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<boolean> {
 export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
   deps.prompter.note('[setup] Starting guided NanoClaw setup');
 
-  let environmentStatus = await runSetupStep(deps, 'environment');
-  environmentStatus = await installSystemDependenciesIfMissing(
+  let environmentStatus = await runRecoverableStage(
     deps,
-    environmentStatus,
+    'environment check',
+    () => runSetupStep(deps, 'environment'),
   );
-  const runtime = await selectRuntime(deps, environmentStatus);
-  environmentStatus = await installRuntimeIfMissing(
+  environmentStatus = await runRecoverableStage(
     deps,
-    environmentStatus,
-    runtime,
+    'system dependency bootstrap',
+    () => installSystemDependenciesIfMissing(deps, environmentStatus),
   );
-  environmentStatus = await ensureRuntimeReady(deps, environmentStatus, runtime);
+  const runtime = await runRecoverableStage(
+    deps,
+    'runtime selection',
+    () => selectRuntime(deps, environmentStatus),
+  );
+  environmentStatus = await runRecoverableStage(
+    deps,
+    'runtime installation',
+    () => installRuntimeIfMissing(deps, environmentStatus, runtime),
+  );
+  environmentStatus = await runRecoverableStage(
+    deps,
+    'runtime startup',
+    () => ensureRuntimeReady(deps, environmentStatus, runtime),
+  );
 
   if (
     runtime === 'apple-container' &&
@@ -1531,19 +1580,30 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
     deps.prompter.note(
       '[setup] Converting this checkout to Apple Container runtime.',
     );
-    const result = await deps.runCommand('npx', [
-      'tsx',
-      'scripts/apply-skill.ts',
-      '.claude/skills/convert-to-apple-container',
-    ]);
-    if (result.code !== 0) {
-      throw new Error(
-        `Apple Container conversion failed: ${result.stderr || result.stdout}`,
-      );
-    }
+    await runRecoverableStage(deps, 'Apple Container conversion', async () => {
+      const result = await deps.runCommand('npx', [
+        'tsx',
+        'scripts/apply-skill.ts',
+        '.claude/skills/convert-to-apple-container',
+      ]);
+      if (result.code !== 0) {
+        throw new Error(result.stderr || result.stdout);
+      }
+    });
   }
 
-  await runSetupStep(deps, 'container', ['--runtime', runtime]);
+  await runRecoverableStage(
+    deps,
+    'container build',
+    () => runSetupStep(deps, 'container', ['--runtime', runtime]),
+    {
+      retryLabel:
+        'Clearing stale per-group agent runner copies, then retrying the container build.',
+      remediate: async () => {
+        clearStaleAgentRunnerCopies(deps.projectRoot);
+      },
+    },
+  );
 
   const projectEnv = readProjectEnvValues(deps.projectRoot, ['ASSISTANT_NAME']);
   const assistantName = await promptRequiredInput(
@@ -1579,25 +1639,76 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
     assistantName,
     trigger,
   )) {
-    await applyChannelSkill(deps, setup.channel);
+    await runRecoverableStage(
+      deps,
+      `${CHANNEL_LABELS[setup.channel]} skill install`,
+      () => applyChannelSkill(deps, setup.channel),
+    );
     if (setup.channel === 'whatsapp') {
-      await configureWhatsApp(deps, setup, environmentStatus);
+      await runRecoverableStage(
+        deps,
+        'WhatsApp authentication and registration',
+        () => configureWhatsApp(deps, setup, environmentStatus),
+      );
     } else {
-      await configureTokenChannel(deps, setup);
+      await runRecoverableStage(
+        deps,
+        `${CHANNEL_LABELS[setup.channel]} credential and registration`,
+        () => configureTokenChannel(deps, setup),
+      );
     }
   }
 
-  const gmailChanged = await maybeConfigureGmail(deps);
+  const gmailChanged = await runRecoverableStage(
+    deps,
+    'Gmail integration',
+    () => maybeConfigureGmail(deps),
+  );
   if (gmailChanged) {
     deps.prompter.note(
       '[setup] Refreshing container assets so Gmail changes reach future sessions.',
     );
     clearStaleAgentRunnerCopies(deps.projectRoot);
-    await runSetupStep(deps, 'container', ['--runtime', runtime]);
+    await runRecoverableStage(
+      deps,
+      'container refresh',
+      () => runSetupStep(deps, 'container', ['--runtime', runtime]),
+      {
+        retryLabel:
+          'Retrying the container refresh after clearing stale per-group agent runner copies.',
+        remediate: async () => {
+          clearStaleAgentRunnerCopies(deps.projectRoot);
+        },
+      },
+    );
   }
-  await configureMounts(deps);
-  await runSetupStep(deps, 'service');
-  await runSetupStep(deps, 'verify');
+  await runRecoverableStage(deps, 'mount configuration', () =>
+    configureMounts(deps),
+  );
+  await runRecoverableStage(
+    deps,
+    'service setup',
+    () => runSetupStep(deps, 'service'),
+    {
+      retryLabel:
+        'Retrying service setup after rebuilding the container image.',
+      remediate: async () => {
+        await runSetupStep(deps, 'container', ['--runtime', runtime]);
+      },
+    },
+  );
+  await runRecoverableStage(
+    deps,
+    'verification',
+    () => runSetupStep(deps, 'verify'),
+    {
+      retryLabel:
+        'Retrying verification after rerunning service setup.',
+      remediate: async () => {
+        await runSetupStep(deps, 'service');
+      },
+    },
+  );
 
   deps.prompter.note('[setup] Guided setup completed');
 }

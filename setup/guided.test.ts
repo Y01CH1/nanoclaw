@@ -1120,6 +1120,111 @@ STATUS: success
     expect(environmentRuns).toBe(2);
   });
 
+  it('retries the container build after clearing stale per-group agent runner copies', async () => {
+    const projectRoot = createTempProject();
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      multiselect: [['Telegram']],
+      select: ['No'],
+      confirm: [false],
+    });
+
+    let containerRuns = 0;
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+NODE: installed
+NPM: installed
+BUILD_TOOLS: ready
+HOMEBREW: not_found
+APT_GET: installed
+DNF: not_found
+YUM: not_found
+APPLE_CONTAINER: not_found
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => {
+        containerRuns += 1;
+        if (containerRuns === 1) {
+          return {
+            code: 1,
+            stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: failed
+ERROR: stale copy detected
+=== END ===
+`,
+            stderr: '',
+          };
+        }
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+        writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step register -- --jid tg:123456 --name Control chat --trigger @Andy --folder telegram_main --channel telegram --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(containerRuns).toBe(2);
+    expect(
+      fs.existsSync(path.join(projectRoot, 'data/sessions/main/agent-runner-src')),
+    ).toBe(false);
+    expect((prompter.note as any).mock.calls.some(([message]: [string]) =>
+      message.includes('container build failed'),
+    )).toBe(true);
+  });
+
   it('installs Docker when it is missing on Linux', async () => {
     const projectRoot = createTempProject();
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
@@ -1462,6 +1567,112 @@ STATUS: success
     );
     expect(commands).toContain('brew install --cask container');
     expect(environmentRuns).toBe(2);
+  });
+
+  it('retries verification after rerunning service setup', async () => {
+    const projectRoot = createTempProject();
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      multiselect: [['Telegram']],
+      select: ['No'],
+      confirm: [false],
+    });
+
+    let serviceRuns = 0;
+    let verifyRuns = 0;
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+NODE: installed
+NPM: installed
+BUILD_TOOLS: ready
+HOMEBREW: not_found
+APT_GET: installed
+DNF: not_found
+YUM: not_found
+APPLE_CONTAINER: not_found
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+        writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step register -- --jid tg:123456 --name Control chat --trigger @Andy --folder telegram_main --channel telegram --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => {
+        serviceRuns += 1;
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step verify --': async () => {
+        verifyRuns += 1;
+        if (verifyRuns === 1) {
+          return {
+            code: 1,
+            stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: failed
+ERROR: service not responding
+=== END ===
+`,
+            stderr: '',
+          };
+        }
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(serviceRuns).toBe(2);
+    expect(verifyRuns).toBe(2);
+    expect((prompter.note as any).mock.calls.some(([message]: [string]) =>
+      message.includes('verification failed'),
+    )).toBe(true);
   });
 
   it('installs Homebrew and Node on macOS before runtime selection', async () => {
