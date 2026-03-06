@@ -18,7 +18,7 @@ warn_deprecated_credentials() {
   fi
 }
 
-step="${1:-environment}"
+step="${1:-guided}"
 
 cd "$ROOT_DIR"
 warn_deprecated_credentials
@@ -28,4 +28,10 @@ if [ ! -d "$ROOT_DIR/node_modules" ]; then
   npm install
 fi
 
-npm run setup -- --step "$step"
+if [ "$step" = "guided" ]; then
+  shift || true
+  npx tsx setup/guided.ts "$@"
+else
+  shift || true
+  npm run setup -- --step "$step" -- "$@"
+fi
