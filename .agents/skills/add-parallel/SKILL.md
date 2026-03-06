@@ -69,16 +69,16 @@ grep "PARALLEL_API_KEY" .env | head -c 50
 
 ### 3. Update Container Runner
 
-Add `PARALLEL_API_KEY` to allowed environment variables in `src/container-runner.ts`:
+Expose `PARALLEL_API_KEY` through `readSecrets()` in `src/container-runner.ts`:
 
-Find the line:
+Find:
 ```typescript
-const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'];
+return readEnvFile(['CODEX_API_KEY', 'OPENAI_API_KEY']);
 ```
 
 Replace with:
 ```typescript
-const allowedVars = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'PARALLEL_API_KEY'];
+return readEnvFile(['CODEX_API_KEY', 'OPENAI_API_KEY', 'PARALLEL_API_KEY']);
 ```
 
 ### 4. Configure MCP Servers in Agent Runner
@@ -133,9 +133,9 @@ allowedTools: [
 ],
 ```
 
-### 5. Add Usage Instructions to CLAUDE.md
+### 5. Add Usage Instructions to AGENTS.md
 
-Add Parallel AI usage instructions to `groups/main/CLAUDE.md`:
+Add Parallel AI usage instructions to `groups/main/AGENTS.md`:
 
 Find the "## What You Can Do" section and add after the existing bullet points:
 ```markdown
@@ -290,6 +290,6 @@ To remove Parallel AI integration:
 
 1. Remove from .env: `sed -i.bak '/PARALLEL_API_KEY/d' .env`
 2. Revert changes to container-runner.ts and agent-runner/src/index.ts
-3. Remove Web Research Tools section from groups/main/CLAUDE.md
+3. Remove Web Research Tools section from `groups/main/AGENTS.md`
 4. Rebuild: `./container/build.sh && npm run build`
 5. Restart: `launchctl kickstart -k gui/$(id -u)/com.nanoclaw` (macOS) or `systemctl --user restart nanoclaw` (Linux)

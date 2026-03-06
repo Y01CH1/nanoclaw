@@ -82,7 +82,7 @@ If the apply reports merge conflicts, read the intent files:
 
 #### Add email handling instructions
 
-Append the following to `groups/main/CLAUDE.md` (before the formatting section):
+Append the following to `groups/main/AGENTS.md` (before the formatting section):
 
 ```markdown
 ## Email Notifications

@@ -26,7 +26,7 @@ This skill helps users add capabilities or modify behavior. Use AskUserQuestion 
 | `src/config.ts` | Assistant name, trigger pattern, directories |
 | `src/db.ts` | Database initialization and queries |
 | `src/whatsapp-auth.ts` | Standalone WhatsApp authentication script |
-| `groups/CLAUDE.md` | Global memory/persona |
+| `groups/global/AGENTS.md` | Global memory/persona |
 
 ## Common Customization Patterns
 
@@ -52,7 +52,7 @@ Questions to ask:
 
 Implementation:
 1. Add MCP server config to the container settings (see `src/container-runner.ts` for how MCP servers are mounted)
-2. Document available tools in `groups/CLAUDE.md`
+2. Document available tools in `groups/global/AGENTS.md`
 
 ### Changing Assistant Behavior
 
@@ -61,8 +61,8 @@ Questions to ask:
 - Apply to all groups or specific ones?
 
 Simple changes → edit `src/config.ts`
-Persona changes → edit `groups/CLAUDE.md`
-Per-group behavior → edit specific group's `CLAUDE.md`
+Persona changes → edit `groups/global/AGENTS.md`
+Per-group behavior → edit a specific group's `AGENTS.md`
 
 ### Adding New Commands
 
@@ -72,7 +72,7 @@ Questions to ask:
 - Does it need new MCP tools?
 
 Implementation:
-1. Commands are handled by the agent naturally — add instructions to `groups/CLAUDE.md` or the group's `CLAUDE.md`
+1. Commands are handled by the agent naturally — add instructions to `groups/global/AGENTS.md` or the group's `AGENTS.md`
 2. For trigger-level routing changes, modify `processGroupMessages()` in `src/index.ts`
 
 ### Changing Deployment
