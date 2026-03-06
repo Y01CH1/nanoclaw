@@ -261,7 +261,8 @@ warn_deprecated_credentials() {
 
   if [ -z "$has_codex" ] && [ -z "$has_openai" ] && [ -n "$has_legacy" ]; then
     echo "[setup] deprecated credentials detected (ANTHROPIC_/CLAUDE_CODE_)."
-    echo "[setup] preferred order: CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*"
+    echo "[setup] supported env auth: CODEX_API_KEY > OPENAI_API_KEY"
+    echo "[setup] file auth is also supported via ~/.codex/auth.json"
   fi
 }
 

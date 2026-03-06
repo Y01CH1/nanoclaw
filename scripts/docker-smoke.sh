@@ -18,7 +18,6 @@ INPUT_JSON='{"prompt":"smoke","groupFolder":"smoke-group","chatJid":"smoke@g.us"
 
 echo "[docker-smoke] running container with fake codex binary"
 OUTPUT="$({ printf '%s' "${INPUT_JSON}"; } | docker run --rm -i \
-  -e AGENT_BACKEND=codex \
   -e PATH=/tmp/fake-codex:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   -v "${ROOT_DIR}/scripts/smoke/fake-codex:/tmp/fake-codex:ro" \
   "${IMAGE_TAG}")"

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  NanoClaw —— 您的专属 Claude 助手，在容器中安全运行。它轻巧易懂，并能根据您的个人需求灵活定制。
+  NanoClaw —— 您的专属 Codex 助手，在容器中安全运行。它轻巧易懂，并能根据您的个人需求灵活定制。
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 </p>
 NanoClaw 默认使用 Codex 作为运行后端，并可根据您的需求动态重写代码。
 
-**新功能：** 首个支持 [Agent Swarms（智能体集群）](https://code.claude.com/docs/en/agent-teams) 的 AI 助手。可轻松组建智能体团队，在您的聊天中高效协作。
+**新功能：** 首个支持智能体集群的 AI 助手。可轻松组建智能体团队，在您的聊天中高效协作。
 
 ## 我为什么创建这个项目
 
@@ -45,11 +45,11 @@ codex exec --full-auto "./scripts/setup.sh"
 codex exec --full-auto "./scripts/verify.sh"
 ```
 
-迁移窗口期间的凭据优先级：
+凭据优先级：
 `CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
 
 Codex 运行时说明：
-- `AGENT_BACKEND=codex` 不使用 `ANTHROPIC_*` / `CLAUDE_CODE_*`（这些仅保留给 Claude 回退路径）。
+- `ANTHROPIC_*` / `CLAUDE_CODE_*` 已弃用，不能用于启用 Codex 运行时。
 - 如果主机存在 `~/.codex/auth.json`，且某个 group 缺少 `data/sessions/<group>/.codex/auth.json`，NanoClaw 会在首次运行时自动 seed（`verify` 中显示 `configured_pending_seed`）。
 - 若你使用的是 keyring-only 登录态，NanoClaw 无法自动导入；请改用 `CODEX_API_KEY` / `OPENAI_API_KEY`，或把 Codex CLI 凭据存储切换为文件模式。
 - 如果启动因为“没有可用频道”、“认证/注册不完整”或“容器运行时不可用”而失败，NanoClaw 现在会打印明确的恢复指引，并把你引回 `./scripts/setup.sh` / `./scripts/verify.sh`。
@@ -68,7 +68,7 @@ Codex 运行时说明：
 
 **技能（Skills）优于功能（Features）:** 贡献者不应该向代码库添加新功能（例如支持 Telegram）。相反，他们应该贡献像 `/add-telegram` 这样的技能来改造您的 fork。最终，您得到的是只做您需要事情的整洁代码。
 
-**最好的工具套件，最好的模型:** 当前默认运行时为 Codex wrapper，并保留受控的 Claude 回退窗口（`AGENT_BACKEND=claude`）以保障迁移稳定性。
+**最好的工具套件，最好的模型:** NanoClaw 使用单一路径的 Codex wrapper 运行时。
 
 ## 功能支持
 
@@ -139,7 +139,7 @@ Codex 运行时说明：
 ## 架构
 
 ```
-渠道 --> SQLite --> 轮询循环 --> 容器 (Codex wrapper / Claude 回退) --> 响应
+渠道 --> SQLite --> 轮询循环 --> 容器 (Codex wrapper) --> 响应
 ```
 
 单一 Node.js 进程。渠道通过技能添加，启动时自注册 — 编排器连接具有凭据的渠道。智能体在具有文件系统隔离的 Linux 容器中执行。每个群组的消息队列带有并发控制。通过文件系统进行 IPC。
@@ -173,15 +173,15 @@ Docker 提供跨平台支持（macOS 和 Linux）和成熟的生态系统。在 
 
 **为什么没有配置文件？**
 
-我们不希望配置泛滥。每个用户都应该定制它，让代码完全符合他们的需求，而不是去配置一个通用的系统。如果您喜欢用配置文件，告诉 Claude 让它加上。
+我们不希望配置泛滥。每个用户都应该定制它，让代码完全符合他们的需求，而不是去配置一个通用的系统。如果您喜欢用配置文件，告诉 Codex 让它加上。
 
 **我可以使用第三方或开源模型吗？**
 
 可以。NanoClaw 支持多种模型端点。优先级如下：
 
-`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
+`CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
 
-回退窗口期间仍兼容 Anthropic 相关配置。
+Anthropic 相关配置已弃用，建议从 `.env` 中移除。
 
 **我该如何调试问题？**
 
@@ -189,7 +189,7 @@ Docker 提供跨平台支持（macOS 和 Linux）和成熟的生态系统。在 
 
 **为什么我的安装不成功？**
 
-如果安装失败，请运行 `./scripts/verify.sh` 并检查日志。迁移窗口期间，你也可以用 `AGENT_BACKEND=claude` 做回退验证。
+如果安装失败，请运行 `./scripts/verify.sh` 并检查日志。
 
 **什么样的代码更改会被接受？**
 

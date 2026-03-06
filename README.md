@@ -14,7 +14,7 @@
 </p>
 Using Codex (default backend), NanoClaw can dynamically rewrite its code to customize its feature set for your needs.
 
-**New:** First AI assistant to support [Agent Swarms](https://code.claude.com/docs/en/agent-teams). Spin up teams of agents that collaborate in your chat.
+**New:** First AI assistant to support agent swarms. Spin up teams of agents that collaborate in your chat.
 
 ## Why I Built NanoClaw
 
@@ -45,11 +45,11 @@ codex exec --full-auto "./scripts/setup.sh"
 codex exec --full-auto "./scripts/verify.sh"
 ```
 
-Credential priority during the migration window:
+Credential priority:
 `CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
 
 Codex runtime notes:
-- Legacy `ANTHROPIC_*` / `CLAUDE_CODE_*` credentials are not used by `AGENT_BACKEND=codex` (they remain for Claude rollback only).
+- Legacy `ANTHROPIC_*` / `CLAUDE_CODE_*` credentials are deprecated and do not enable the Codex runtime.
 - If host `~/.codex/auth.json` exists and a group has no `data/sessions/<group>/.codex/auth.json`, NanoClaw seeds it on first run (`configured_pending_seed` state in verify).
 - Keyring-only Codex auth is not auto-imported; use `CODEX_API_KEY` / `OPENAI_API_KEY` or switch Codex CLI credential store to file-based auth.
 - If startup fails because no channels are configured, credentials are incomplete, or the container runtime is unavailable, NanoClaw prints guided recovery messages pointing back to `./scripts/setup.sh` and `./scripts/verify.sh`.
@@ -79,7 +79,7 @@ Legacy skills to script mapping:
 
 **Skills over features.** Instead of adding features (e.g. support for Telegram) to the codebase, contributors submit skills like `/add-telegram` that transform your fork. You end up with clean code that does exactly what you need.
 
-**Best harness, best model.** NanoClaw now defaults to a Codex wrapper runtime, with a controlled Claude rollback window (`AGENT_BACKEND=claude`) for migration safety.
+**Best harness, best model.** NanoClaw uses a single-backend Codex wrapper runtime.
 
 ## What It Supports
 
@@ -150,7 +150,7 @@ Skills we'd like to see:
 ## Architecture
 
 ```
-Channels --> SQLite --> Polling loop --> Container (Codex wrapper / Claude fallback) --> Response
+Channels --> SQLite --> Polling loop --> Container (Codex wrapper) --> Response
 ```
 
 Single Node.js process. Channels are added via skills and self-register at startup — the orchestrator connects whichever ones have credentials present. Agents execute in isolated Linux containers with filesystem isolation. Only mounted directories are accessible. Per-group message queue with concurrency control. IPC via filesystem.
@@ -184,17 +184,17 @@ Agents run in containers, not behind application-level permission checks. They c
 
 **Why no configuration files?**
 
-We don't want configuration sprawl. Every user should customize NanoClaw so that the code does exactly what they want, rather than configuring a generic system. If you prefer having config files, you can tell Claude to add them.
+We don't want configuration sprawl. Every user should customize NanoClaw so that the code does exactly what they want, rather than configuring a generic system. If you prefer having config files, you can tell Codex to add them.
 
 **Can I use third-party or open-source models?**
 
 Yes. NanoClaw supports multiple model endpoints. Use credential priority:
 
-`CODEX_API_KEY > OPENAI_API_KEY > ANTHROPIC_* > CLAUDE_CODE_*`
+`CODEX_API_KEY > OPENAI_API_KEY > group .codex/auth.json`
 
 For custom endpoints, configure your provider-specific environment variables.
 
-Legacy Anthropic-compatible settings remain supported during the rollback window.
+Legacy Anthropic-compatible settings are deprecated and should be removed from `.env`.
 
 **How do I debug issues?**
 
@@ -202,7 +202,7 @@ Ask your coding agent. "Why isn't the scheduler running?" "What's in the recent 
 
 **Why isn't the setup working for me?**
 
-If setup fails, run `./scripts/verify.sh` and inspect logs. During migration, you can also test rollback behavior with `AGENT_BACKEND=claude`.
+If setup fails, run `./scripts/verify.sh` and inspect logs.
 
 **What changes will be accepted into the codebase?**
 

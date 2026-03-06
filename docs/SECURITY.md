@@ -42,11 +42,11 @@ private_key, .secret
 
 **Read-Only Project Root:**
 
-The main group's project root is mounted read-only. Writable paths the agent needs (group folder, IPC, `.codex/`, `.claude/` during rollback window) are mounted separately. This prevents the agent from modifying host application code (`src/`, `dist/`, `package.json`, etc.) which would bypass the sandbox entirely on next restart.
+The main group's project root is mounted read-only. Writable paths the agent needs (group folder, IPC, `.codex/`) are mounted separately. This prevents the agent from modifying host application code (`src/`, `dist/`, `package.json`, etc.) which would bypass the sandbox entirely on next restart.
 
 ### 3. Session Isolation
 
-Each group has isolated sessions at `data/sessions/{group}/.codex/` (default backend) and optional rollback sessions at `data/sessions/{group}/.claude/`:
+Each group has isolated Codex sessions at `data/sessions/{group}/.codex/`:
 - Groups cannot see other groups' conversation history
 - Session data includes full message history and file contents read
 - Prevents cross-group information disclosure
@@ -80,10 +80,6 @@ Only credential environment variables needed for runtime auth are exposed to con
 const allowedVars = [
   'CODEX_API_KEY',
   'OPENAI_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_AUTH_TOKEN',
-  'CLAUDE_CODE_OAUTH_TOKEN',
 ];
 ```
 
