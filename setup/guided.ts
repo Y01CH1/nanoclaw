@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import readline from 'readline/promises';
 import { stdin as input, stdout as output } from 'process';
@@ -7,7 +8,8 @@ import { fileURLToPath } from 'url';
 
 import { readEnvFile } from '../src/env.js';
 
-type ChannelName = 'whatsapp' | 'telegram' | 'slack' | 'discord';
+type ChannelName = 'whatsapp' | 'telegram' | 'slack' | 'discord' | 'gmail';
+type GmailMode = 'disabled' | 'tool-only' | 'channel';
 
 type RunResult = {
   code: number;
@@ -65,12 +67,14 @@ const CHANNEL_LABELS: Record<ChannelName, string> = {
   telegram: 'Telegram',
   slack: 'Slack',
   discord: 'Discord',
+  gmail: 'Gmail',
 };
 
 const TOKEN_ENV_KEYS: Record<Exclude<ChannelName, 'whatsapp'>, string[]> = {
   telegram: ['TELEGRAM_BOT_TOKEN'],
   slack: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'],
   discord: ['DISCORD_BOT_TOKEN'],
+  gmail: [],
 };
 
 const MANUAL_CHANNEL_HELP: Record<Exclude<ChannelName, 'whatsapp'>, string> = {
@@ -80,7 +84,13 @@ const MANUAL_CHANNEL_HELP: Record<Exclude<ChannelName, 'whatsapp'>, string> = {
     'Create a Slack app with Socket Mode, then paste the Bot Token and App Token. For registration, paste the target channel ID.',
   discord:
     'Create or open a Discord bot app, invite it to your server, then paste the bot token. Enable Developer Mode to copy the target channel ID.',
+  gmail:
+    'Gmail is configured as an optional integration, not as a primary chat. The guided flow will ask for Google OAuth credentials and start the browser authorization flow.',
 };
+
+function getGmailConfigDir(): string {
+  return path.join(os.homedir(), '.gmail-mcp');
+}
 
 export function parseStatusBlocks(outputText: string): SetupStatus[] {
   const lines = outputText.split(/\r?\n/);
@@ -186,6 +196,22 @@ export function upsertEnvContent(
   }
 
   return `${nextLines.join('\n').replace(/\n+$/u, '')}\n`;
+}
+
+export function writeGmailOAuthKeys(
+  targetDir: string,
+  source: { type: 'path'; value: string } | { type: 'json'; value: string },
+): void {
+  fs.mkdirSync(targetDir, { recursive: true });
+  const targetPath = path.join(targetDir, 'gcp-oauth.keys.json');
+
+  if (source.type === 'path') {
+    fs.copyFileSync(source.value, targetPath);
+    return;
+  }
+
+  const parsed = JSON.parse(source.value);
+  fs.writeFileSync(targetPath, `${JSON.stringify(parsed, null, 2)}\n`);
 }
 
 function formatEnvValue(value: string): string {
@@ -657,6 +683,65 @@ async function configureMounts(deps: GuidedDeps): Promise<void> {
   ]);
 }
 
+async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
+  const gmailModeLabel = await deps.prompter.select(
+    'Enable Gmail integration?',
+    ['No', 'Tool-only', 'Email channel'],
+    0,
+  );
+  const gmailMode: GmailMode =
+    gmailModeLabel === 'Tool-only'
+      ? 'tool-only'
+      : gmailModeLabel === 'Email channel'
+        ? 'channel'
+        : 'disabled';
+
+  if (gmailMode === 'disabled') return;
+
+  await applyChannelSkill(deps, 'gmail' as never);
+
+  const gmailDir = getGmailConfigDir();
+  const keysPath = path.join(gmailDir, 'gcp-oauth.keys.json');
+  if (!fs.existsSync(keysPath)) {
+    const sourceKind = await deps.prompter.select(
+      'How do you want to provide the Gmail OAuth client JSON?',
+      ['File path', 'Paste JSON'],
+      0,
+    );
+    if (sourceKind === 'File path') {
+      const sourcePath = await deps.prompter.input(
+        'Enter the full path to gcp-oauth.keys.json',
+      );
+      writeGmailOAuthKeys(gmailDir, { type: 'path', value: sourcePath });
+    } else {
+      const jsonText = await deps.prompter.input(
+        'Paste the Gmail OAuth client JSON',
+      );
+      writeGmailOAuthKeys(gmailDir, { type: 'json', value: jsonText });
+    }
+  }
+
+  deps.prompter.note(
+    '[setup] Starting Gmail OAuth authorization in the browser.',
+  );
+  const authResult = await deps.runCommand('npx', [
+    '-y',
+    '@gongrzhe/server-gmail-autoauth-mcp',
+    'auth',
+  ]);
+  if (authResult.code !== 0) {
+    throw new Error(
+      `Gmail authorization failed: ${authResult.stderr || authResult.stdout}`,
+    );
+  }
+
+  if (gmailMode === 'channel') {
+    deps.prompter.note(
+      '[setup] Gmail channel mode delivers incoming emails into the registered main chat.',
+    );
+  }
+}
+
 export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
   deps.prompter.note('[setup] Starting guided NanoClaw setup');
 
@@ -717,6 +802,7 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
     }
   }
 
+  await maybeConfigureGmail(deps);
   await configureMounts(deps);
   await runSetupStep(deps, 'service');
   await runSetupStep(deps, 'verify');

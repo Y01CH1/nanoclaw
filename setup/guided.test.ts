@@ -11,6 +11,7 @@ import {
   runGuidedSetup,
   sanitizeFolderSlug,
   upsertEnvContent,
+  writeGmailOAuthKeys,
   type GuidedDeps,
   type Prompter,
 } from './guided.js';
@@ -103,6 +104,30 @@ DOCKER: running
     expect(normalizeChannelJid('telegram', '123')).toBe('tg:123');
     expect(normalizeChannelJid('discord', 'dc:456')).toBe('dc:456');
     expect(sanitizeFolderSlug('Family Chat!!')).toBe('family-chat');
+  });
+
+  it('writes Gmail OAuth keys from JSON or file path', () => {
+    const projectRoot = createTempProject();
+    const sourcePath = path.join(projectRoot, 'oauth.json');
+    fs.writeFileSync(sourcePath, '{"installed":{"client_id":"abc"}}');
+
+    const fileTarget = path.join(projectRoot, 'gmail-file');
+    writeGmailOAuthKeys(fileTarget, { type: 'path', value: sourcePath });
+    expect(
+      fs.existsSync(path.join(fileTarget, 'gcp-oauth.keys.json')),
+    ).toBe(true);
+
+    const jsonTarget = path.join(projectRoot, 'gmail-json');
+    writeGmailOAuthKeys(jsonTarget, {
+      type: 'json',
+      value: '{"installed":{"client_id":"xyz"}}',
+    });
+    expect(
+      fs.readFileSync(
+        path.join(jsonTarget, 'gcp-oauth.keys.json'),
+        'utf-8',
+      ),
+    ).toContain('"client_id": "xyz"');
   });
 });
 
@@ -286,5 +311,112 @@ STATUS: success
     expect(envContent).toContain('TELEGRAM_BOT_TOKEN=123:abc');
     expect(envContent).toContain('ASSISTANT_NAME=Andy');
     expect(fs.existsSync(path.join(projectRoot, 'data/env/env'))).toBe(true);
+  });
+
+  it('applies and authorizes Gmail when selected', async () => {
+    const projectRoot = createTempProject();
+    const fakeHome = path.join(projectRoot, 'home');
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
+    fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', 'WhatsApp main', oauthSource],
+      multiselect: [['WhatsApp']],
+      select: ['QR code in browser', 'Self-chat', 'Email channel', 'File path'],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp': async () => {
+        writeProjectFile(projectRoot, 'src/channels/whatsapp.ts', '');
+        writeProjectFile(projectRoot, 'src/whatsapp-auth.ts', '');
+        writeProjectFile(projectRoot, 'setup/whatsapp-auth.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step whatsapp-auth -- --method qr-browser': async () => {
+        writeProjectFile(
+          projectRoot,
+          'store/auth/creds.json',
+          JSON.stringify({ me: { id: '15551234567:1@s.whatsapp.net' } }),
+        );
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: AUTH_WHATSAPP ===
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'npx tsx setup/index.ts --step register -- --jid 15551234567@s.whatsapp.net --name WhatsApp main --trigger @Andy --folder whatsapp_main --channel whatsapp --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-gmail': async () => {
+        writeProjectFile(projectRoot, 'src/channels/gmail.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx -y @gongrzhe/server-gmail-autoauth-mcp auth': async () => ({
+        code: 0,
+        stdout: 'gmail auth ok',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    expect(
+      fs.existsSync(path.join(fakeHome, '.gmail-mcp', 'gcp-oauth.keys.json')),
+    ).toBe(true);
   });
 });
