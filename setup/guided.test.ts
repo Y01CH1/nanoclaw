@@ -476,6 +476,11 @@ STATUS: success
         );
         return { code: 0, stdout: '{"success":true}', stderr: '' };
       },
+      'container system status': async () => ({
+        code: 0,
+        stdout: 'running',
+        stderr: '',
+      }),
       'npx tsx setup/index.ts --step container -- --runtime apple-container': async () => ({
         code: 0,
         stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
@@ -533,5 +538,189 @@ STATUS: success
     expect(commands).toContain(
       'npx tsx setup/index.ts --step container -- --runtime apple-container',
     );
+  });
+
+  it('starts Docker when the environment reports installed_not_running', async () => {
+    const projectRoot = createTempProject();
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+
+    const prompter = createPrompter({
+      input: ['Nova', '@Nova', '123:abc', '123456', 'Control chat'],
+      multiselect: [['Telegram']],
+      select: ['No'],
+      confirm: [false],
+    });
+
+    let environmentRuns = 0;
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => {
+        environmentRuns += 1;
+        return {
+          code: 0,
+          stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: linux
+IS_WSL: false
+IS_HEADLESS: false
+APPLE_CONTAINER: not_found
+DOCKER: ${environmentRuns === 1 ? 'installed_not_running' : 'running'}
+STATUS: success
+=== END ===
+`,
+          stderr: '',
+        };
+      },
+      'sudo systemctl start docker': async () => ({
+        code: 0,
+        stdout: '',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime docker': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+        writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step register -- --jid tg:123456 --name Control chat --trigger @Nova --folder telegram_main --channel telegram --assistant-name Nova --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).toContain('sudo systemctl start docker');
+    expect(environmentRuns).toBe(2);
+  });
+
+  it('starts Apple Container before building when selected', async () => {
+    const projectRoot = createTempProject();
+    writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
+    writeProjectFile(
+      projectRoot,
+      'src/container-runtime.ts',
+      "export const CONTAINER_RUNTIME_BIN = 'container';\n",
+    );
+
+    const prompter = createPrompter({
+      input: ['Andy', '@Andy', '123:abc', '123456', 'Control chat'],
+      multiselect: [['Telegram']],
+      select: ['Apple Container', 'No'],
+      confirm: [false],
+    });
+
+    const deps = createDeps(projectRoot, prompter, {
+      'npx tsx setup/index.ts --step environment --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CHECK_ENVIRONMENT ===
+PLATFORM: macos
+IS_WSL: false
+IS_HEADLESS: false
+APPLE_CONTAINER: installed
+DOCKER: running
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'container system status': async () => ({
+        code: 1,
+        stdout: '',
+        stderr: 'not running',
+      }),
+      'container system start': async () => ({
+        code: 0,
+        stdout: 'started',
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step container -- --runtime apple-container': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_CONTAINER ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx scripts/apply-skill.ts .claude/skills/add-telegram': async () => {
+        writeProjectFile(projectRoot, 'src/channels/telegram.ts', '');
+        return { code: 0, stdout: '{"success":true}', stderr: '' };
+      },
+      'npx tsx setup/index.ts --step register -- --jid tg:123456 --name Control chat --trigger @Andy --folder telegram_main --channel telegram --assistant-name Andy --is-main --no-trigger-required': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: REGISTER_CHANNEL ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step mounts -- --empty': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: CONFIGURE_MOUNTS ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step service --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: SETUP_SERVICE ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+      'npx tsx setup/index.ts --step verify --': async () => ({
+        code: 0,
+        stdout: `=== NANOCLAW SETUP: VERIFY ===
+STATUS: success
+=== END ===
+`,
+        stderr: '',
+      }),
+    });
+
+    await runGuidedSetup(deps);
+
+    const commands = (deps.runCommand as any).mock.calls.map(
+      ([command, args]: [string, string[]]) => `${command} ${args.join(' ')}`,
+    );
+    expect(commands).toContain('container system status');
+    expect(commands).toContain('container system start');
   });
 });

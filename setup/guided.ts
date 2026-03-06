@@ -410,6 +410,13 @@ function getSetupCommandArgs(step: string, args: string[]): string[] {
   return ['tsx', 'setup/index.ts', '--step', step, '--', ...args];
 }
 
+function getDockerStartCommand(): { command: string; args: string[] } {
+  if (process.getuid?.() === 0) {
+    return { command: 'systemctl', args: ['start', 'docker'] };
+  }
+  return { command: 'sudo', args: ['systemctl', 'start', 'docker'] };
+}
+
 async function runSetupStep(
   deps: GuidedDeps,
   step: string,
@@ -685,6 +692,49 @@ async function selectRuntime(
   return fallback as RuntimeChoice;
 }
 
+async function ensureRuntimeReady(
+  deps: GuidedDeps,
+  environmentStatus: SetupStatus,
+  runtime: RuntimeChoice,
+): Promise<SetupStatus> {
+  if (runtime === 'docker') {
+    if (environmentStatus.fields.DOCKER === 'running') {
+      return environmentStatus;
+    }
+    if (environmentStatus.fields.DOCKER !== 'installed_not_running') {
+      return environmentStatus;
+    }
+
+    deps.prompter.note('[setup] Docker is installed but not running. Starting it now.');
+    if (environmentStatus.fields.PLATFORM === 'macos') {
+      await deps.runCommand('open', ['-a', 'Docker']);
+    } else {
+      const start = getDockerStartCommand();
+      await deps.runCommand(start.command, start.args);
+    }
+
+    const refreshed = await runSetupStep(deps, 'environment');
+    if (refreshed.fields.DOCKER !== 'running') {
+      throw new Error('Docker is still not running after the start attempt');
+    }
+    return refreshed;
+  }
+
+  const status = await deps.runCommand('container', ['system', 'status']);
+  if (status.code === 0) {
+    return environmentStatus;
+  }
+
+  deps.prompter.note('[setup] Apple Container runtime is installed but not started. Starting it now.');
+  const start = await deps.runCommand('container', ['system', 'start']);
+  if (start.code !== 0) {
+    throw new Error(
+      `Apple Container failed to start: ${start.stderr || start.stdout}`,
+    );
+  }
+  return environmentStatus;
+}
+
 function buildChannelSetups(
   selectedChannels: ChannelName[],
   mainChannel: ChannelName,
@@ -788,8 +838,9 @@ async function maybeConfigureGmail(deps: GuidedDeps): Promise<void> {
 export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
   deps.prompter.note('[setup] Starting guided NanoClaw setup');
 
-  const environmentStatus = await runSetupStep(deps, 'environment');
+  let environmentStatus = await runSetupStep(deps, 'environment');
   const runtime = await selectRuntime(deps, environmentStatus);
+  environmentStatus = await ensureRuntimeReady(deps, environmentStatus, runtime);
 
   if (
     runtime === 'apple-container' &&
