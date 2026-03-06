@@ -1,349 +1,283 @@
 ---
 name: debug
-description: Debug container agent issues. Use when things aren't working, container fails, authentication problems, or to understand how the container system works. Covers logs, environment variables, mounts, and common issues.
+description: Debug NanoClaw container agent issues. Use when the service is not responding, Codex credentials are missing, container startup fails, messages do not flow, or you need to inspect mounts, logs, and runner state.
 ---
 
 # NanoClaw Container Debugging
 
-This guide covers debugging the containerized agent execution system.
+This guide covers the current Codex-only container path.
 
 ## Architecture Overview
 
 ```
-Host (macOS)                          Container (Linux VM)
+Host (macOS/Linux)                    Container
 ─────────────────────────────────────────────────────────────
 src/container-runner.ts               container/agent-runner/
     │                                      │
-    │ spawns container                      │ runs Claude Agent SDK
-    │ with volume mounts                   │ with MCP servers
+    │ spawns runtime                        │ runs codex-wrapper
+    │ with bind mounts + env                │ with managed MCP config
     │                                      │
-    ├── data/env/env ──────────────> /workspace/env-dir/env
-    ├── groups/{folder} ───────────> /workspace/group
-    ├── data/ipc/{folder} ────────> /workspace/ipc
-    ├── data/sessions/{folder}/.claude/ ──> /home/node/.claude/ (isolated per-group)
-    └── (main only) project root ──> /workspace/project
+    ├── groups/{folder} ─────────────> /workspace/group
+    ├── groups/global (non-main) ────> /workspace/global
+    ├── data/ipc/{folder} ───────────> /workspace/ipc
+    ├── data/sessions/{folder}/.codex ──> /home/node/.codex
+    ├── data/sessions/{folder}/agent-runner-src ──> /app/src
+    └── (main only) project root ────> /workspace/project (read-only)
 ```
 
-**Important:** The container runs as user `node` with `HOME=/home/node`. Session files must be mounted to `/home/node/.claude/` (not `/root/.claude/`) for session resumption to work.
+Important points:
+- Codex session state is isolated per group in `data/sessions/{folder}/.codex/`
+- Host `~/.codex/auth.json` may be seeded into a group's `.codex/` on first run
+- The main project root is mounted read-only
+- Group-local agent-runner source is mounted at `/app/src`
 
 ## Log Locations
 
 | Log | Location | Content |
-|-----|----------|---------|
-| **Main app logs** | `logs/nanoclaw.log` | Host-side WhatsApp, routing, container spawning |
-| **Main app errors** | `logs/nanoclaw.error.log` | Host-side errors |
-| **Container run logs** | `groups/{folder}/logs/container-*.log` | Per-run: input, mounts, stderr, stdout |
-| **Claude sessions** | `~/.claude/projects/` | Claude Code session history |
+|------|----------|---------|
+| Main app logs | `logs/nanoclaw.log` | Host-side routing, scheduler, container lifecycle |
+| Main app errors | `logs/nanoclaw.error.log` | Host-side failures |
+| Container run logs | `groups/{folder}/logs/container-*.log` | Per-run input, mounts, stdout, stderr, parsed output |
 
-## Enabling Debug Logging
+## First Checks
 
-Set `LOG_LEVEL=debug` for verbose output:
+### 1. Verify setup state
 
 ```bash
-# For development
-LOG_LEVEL=debug npm run dev
-
-# For launchd service (macOS), add to plist EnvironmentVariables:
-<key>LOG_LEVEL</key>
-<string>debug</string>
-# For systemd service (Linux), add to unit [Service] section:
-# Environment=LOG_LEVEL=debug
+./scripts/verify.sh
 ```
 
-Debug level shows:
-- Full mount configurations
-- Container command arguments
-- Real-time container stderr
+Look for:
+- credential state
+- channel registration state
+- runtime readiness
+- startup blockers
+
+### 2. Enable debug logging
+
+```bash
+LOG_LEVEL=debug npm run dev
+```
+
+For services, set `LOG_LEVEL=debug` in launchd/systemd environment config.
+
+Debug logging shows:
+- container mount configuration
+- container arguments
+- streamed stderr lines
+- parsed output warnings
 
 ## Common Issues
 
-### 1. "Claude Code process exited with code 1"
+### 1. `CODEX_CREDENTIAL_MISSING`
 
-**Check the container log file** in `groups/{folder}/logs/container-*.log`
+This means NanoClaw could not find usable Codex credentials.
+
+Valid credential sources:
+- `CODEX_API_KEY` in `.env`
+- `OPENAI_API_KEY` in `.env`
+- `data/sessions/{group}/.codex/auth.json`
+- host `~/.codex/auth.json` for first-run seed
+
+Check:
+
+```bash
+grep -E '^(CODEX_API_KEY|OPENAI_API_KEY)=' .env
+ls -la ~/.codex
+ls -la data/sessions/main/.codex
+```
+
+If only keyring-backed Codex login exists, NanoClaw will not auto-import it. Use file-based auth or an env key.
+
+### 2. Container runtime not available
+
+Check:
+
+```bash
+docker info
+```
+
+If Docker is installed but access fails:
+- macOS: start Docker Desktop
+- Linux: `sudo systemctl start docker`
+- Linux socket permissions: ensure the current user can access `/var/run/docker.sock`
+
+Apple Container is secondary support. If debugging the primary path, prefer Docker first.
+
+### 3. No response to messages
+
+Check:
+
+```bash
+tail -f logs/nanoclaw.log
+./scripts/verify.sh
+```
 
 Common causes:
+- service not running
+- channel registered incompletely
+- container image missing
+- Codex credentials missing
+- trigger mismatch
 
-#### Missing Authentication
-```
-Invalid API key · Please run /login
-```
-**Fix:** Ensure `.env` file exists with either OAuth token or API key:
+### 4. Container exits unexpectedly
+
+Inspect the latest run log:
+
 ```bash
-cat .env  # Should show one of:
-# CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-...  (subscription)
-# ANTHROPIC_API_KEY=sk-ant-api03-...        (pay-per-use)
+ls -t groups/*/logs/container-*.log | head -3
+tail -n 80 groups/main/logs/container-*.log
 ```
 
-#### Root User Restriction
-```
---dangerously-skip-permissions cannot be used with root/sudo privileges
-```
-**Fix:** Container must run as non-root user. Check Dockerfile has `USER node`.
+Look for:
+- stderr tail
+- parsed output payload
+- timeout messages
+- malformed JSON or missing output markers
 
-### 2. Environment Variables Not Passing
+### 5. Session not resuming
 
-**Runtime note:** Environment variables passed via `-e` may be lost when using `-i` (interactive/piped stdin).
+Codex session state lives in:
 
-**Workaround:** The system extracts only authentication variables (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`) from `.env` and mounts them for sourcing inside the container. Other env vars are not exposed.
-
-To verify env vars are reaching the container:
 ```bash
-echo '{}' | docker run -i \
-  -v $(pwd)/data/env:/workspace/env-dir:ro \
-  --entrypoint /bin/bash nanoclaw-agent:latest \
-  -c 'export $(cat /workspace/env-dir/env | xargs); echo "OAuth: ${#CLAUDE_CODE_OAUTH_TOKEN} chars, API: ${#ANTHROPIC_API_KEY} chars"'
+data/sessions/{group}/.codex/
 ```
 
-### 3. Mount Issues
+Check:
 
-**Container mount notes:**
-- Docker supports both `-v` and `--mount` syntax
-- Use `:ro` suffix for readonly mounts:
-  ```bash
-  # Readonly
-  -v /path:/container/path:ro
-
-  # Read-write
-  -v /path:/container/path
-  ```
-
-To check what's mounted inside a container:
 ```bash
-docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c 'ls -la /workspace/'
+ls -la data/sessions/main/.codex
 ```
 
-Expected structure:
-```
-/workspace/
-├── env-dir/env           # Environment file (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
-├── group/                # Current group folder (cwd)
-├── project/              # Project root (main channel only)
-├── global/               # Global CLAUDE.md (non-main only)
-├── ipc/                  # Inter-process communication
-│   ├── messages/         # Outgoing WhatsApp messages
-│   ├── tasks/            # Scheduled task commands
-│   ├── current_tasks.json    # Read-only: scheduled tasks visible to this group
-│   └── available_groups.json # Read-only: WhatsApp groups for activation (main only)
-└── extra/                # Additional custom mounts
-```
+You should typically see:
+- `auth.json` when file-based auth is available
+- `config.toml` when host config has been seeded
 
-### 4. Permission Issues
+If every turn creates a new session:
+- inspect the latest container log for resume fallback
+- verify the mount target is `/home/node/.codex`
+- verify the group `.codex/` directory is writable
 
-The container runs as user `node` (uid 1000). Check ownership:
+### 6. MCP server failures
+
+NanoClaw writes managed Codex MCP config into:
+
 ```bash
-docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
-  whoami
-  ls -la /workspace/
-  ls -la /app/
-'
+data/sessions/{group}/.codex/config.toml
 ```
 
-All of `/workspace/` and `/app/` should be owned by `node`.
+Inspect:
 
-### 5. Session Not Resuming / "Claude Code process exited with code 1"
-
-If sessions aren't being resumed (new session ID every time), or Claude Code exits with code 1 when resuming:
-
-**Root cause:** The SDK looks for sessions at `$HOME/.claude/projects/`. Inside the container, `HOME=/home/node`, so it looks at `/home/node/.claude/projects/`.
-
-**Check the mount path:**
 ```bash
-# In container-runner.ts, verify mount is to /home/node/.claude/, NOT /root/.claude/
-grep -A3 "Claude sessions" src/container-runner.ts
+cat data/sessions/main/.codex/config.toml
 ```
 
-**Verify sessions are accessible:**
+You should see a managed block containing at least `nanoclaw`, and any enabled optional MCP servers such as Gmail or Ollama.
+
+## Manual Inspection
+
+### Check current mount assumptions
+
 ```bash
-docker run --rm --entrypoint /bin/bash \
-  -v ~/.claude:/home/node/.claude \
-  nanoclaw-agent:latest -c '
-echo "HOME=$HOME"
-ls -la $HOME/.claude/projects/ 2>&1 | head -5
-'
+grep -n "/home/node/.codex" src/container-runner.ts
+grep -n "agent-runner-src" src/container-runner.ts
+grep -n "CODEX_API_KEY" src/container-runner.ts
 ```
 
-**Fix:** Ensure `container-runner.ts` mounts to `/home/node/.claude/`:
-```typescript
-mounts.push({
-  hostPath: claudeDir,
-  containerPath: '/home/node/.claude',  // NOT /root/.claude
-  readonly: false
-});
+### Check recent startup guidance
+
+```bash
+tail -n 80 logs/nanoclaw.error.log
+tail -n 120 logs/nanoclaw.log
 ```
 
-### 6. MCP Server Failures
+### Check group IPC
 
-If an MCP server fails to start, the agent may exit. Check the container logs for MCP initialization errors.
+```bash
+find data/ipc -maxdepth 3 -type f | sort
+```
+
+Important IPC locations:
+- `data/ipc/{group}/messages/`
+- `data/ipc/{group}/tasks/`
+- `data/ipc/{group}/input/`
 
 ## Manual Container Testing
 
-### Test the full agent flow:
-```bash
-# Set up env file
-mkdir -p data/env groups/test
-cp .env data/env/env
+### Docker smoke
 
-# Run test query
-echo '{"prompt":"What is 2+2?","groupFolder":"test","chatJid":"test@g.us","isMain":false}' | \
-  docker run -i \
-  -v $(pwd)/data/env:/workspace/env-dir:ro \
-  -v $(pwd)/groups/test:/workspace/group \
-  -v $(pwd)/data/ipc:/workspace/ipc \
-  nanoclaw-agent:latest
+```bash
+npm run test:docker-smoke
 ```
 
-### Test Claude Code directly:
-```bash
-docker run --rm --entrypoint /bin/bash \
-  -v $(pwd)/data/env:/workspace/env-dir:ro \
-  nanoclaw-agent:latest -c '
-  export $(cat /workspace/env-dir/env | xargs)
-  claude -p "Say hello" --dangerously-skip-permissions --allowedTools ""
-'
-```
+This is the fastest end-to-end sanity check for:
+- image build
+- container startup
+- output marker parsing
 
-### Interactive shell in container:
+### Interactive shell
+
 ```bash
 docker run --rm -it --entrypoint /bin/bash nanoclaw-agent:latest
 ```
 
-## SDK Options Reference
-
-The agent-runner uses these Claude Agent SDK options:
-
-```typescript
-query({
-  prompt: input.prompt,
-  options: {
-    cwd: '/workspace/group',
-    allowedTools: ['Bash', 'Read', 'Write', ...],
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,  // Required with bypassPermissions
-    settingSources: ['project'],
-    mcpServers: { ... }
-  }
-})
-```
-
-**Important:** `allowDangerouslySkipPermissions: true` is required when using `permissionMode: 'bypassPermissions'`. Without it, Claude Code exits with code 1.
-
-## Rebuilding After Changes
+### Check the built agent-runner payload
 
 ```bash
-# Rebuild main app
-npm run build
-
-# Rebuild container (use --no-cache for clean rebuild)
-./container/build.sh
-
-# Or force full rebuild
-docker builder prune -af
-./container/build.sh
-```
-
-## Checking Container Image
-
-```bash
-# List images
-docker images
-
-# Check what's in the image
 docker run --rm --entrypoint /bin/bash nanoclaw-agent:latest -c '
-  echo "=== Node version ==="
-  node --version
-
-  echo "=== Claude Code version ==="
-  claude --version
-
-  echo "=== Installed packages ==="
-  ls /app/node_modules/
+  ls -la /tmp/dist
+  ls -la /app/src
 '
 ```
 
-## Session Persistence
-
-Claude sessions are stored per-group in `data/sessions/{group}/.claude/` for security isolation. Each group has its own session directory, preventing cross-group access to conversation history.
-
-**Critical:** The mount path must match the container user's HOME directory:
-- Container user: `node`
-- Container HOME: `/home/node`
-- Mount target: `/home/node/.claude/` (NOT `/root/.claude/`)
-
-To clear sessions:
+## Rebuild After Changes
 
 ```bash
-# Clear all sessions for all groups
-rm -rf data/sessions/
-
-# Clear sessions for a specific group
-rm -rf data/sessions/{groupFolder}/.claude/
-
-# Also clear the session ID from NanoClaw's tracking (stored in SQLite)
-sqlite3 store/messages.db "DELETE FROM sessions WHERE group_folder = '{groupFolder}'"
+npm run build
+./container/build.sh
 ```
 
-To verify session resumption is working, check the logs for the same session ID across messages:
-```bash
-grep "Session initialized" logs/nanoclaw.log | tail -5
-# Should show the SAME session ID for consecutive messages in the same group
-```
-
-## IPC Debugging
-
-The container communicates back to the host via files in `/workspace/ipc/`:
+If you suspect stale image state:
 
 ```bash
-# Check pending messages
-ls -la data/ipc/messages/
-
-# Check pending task operations
-ls -la data/ipc/tasks/
-
-# Read a specific IPC file
-cat data/ipc/messages/*.json
-
-# Check available groups (main channel only)
-cat data/ipc/main/available_groups.json
-
-# Check current tasks snapshot
-cat data/ipc/{groupFolder}/current_tasks.json
+docker builder prune -f
+./container/build.sh
 ```
-
-**IPC file types:**
-- `messages/*.json` - Agent writes: outgoing WhatsApp messages
-- `tasks/*.json` - Agent writes: task operations (schedule, pause, resume, cancel, refresh_groups)
-- `current_tasks.json` - Host writes: read-only snapshot of scheduled tasks
-- `available_groups.json` - Host writes: read-only list of WhatsApp groups (main only)
 
 ## Quick Diagnostic Script
 
-Run this to check common issues:
-
 ```bash
-echo "=== Checking NanoClaw Container Setup ==="
+echo "=== Checking NanoClaw Codex Container Setup ==="
 
-echo -e "\n1. Authentication configured?"
-[ -f .env ] && (grep -q "CLAUDE_CODE_OAUTH_TOKEN=sk-" .env || grep -q "ANTHROPIC_API_KEY=sk-" .env) && echo "OK" || echo "MISSING - add CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY to .env"
+echo -e "\n1. Codex env key configured?"
+grep -Eq '^(CODEX_API_KEY|OPENAI_API_KEY)=' .env 2>/dev/null && echo "OK" || echo "MISSING - add CODEX_API_KEY or OPENAI_API_KEY, or rely on ~/.codex/auth.json"
 
-echo -e "\n2. Env file copied for container?"
-[ -f data/env/env ] && echo "OK" || echo "MISSING - will be created on first run"
+echo -e "\n2. Host Codex auth file present?"
+[ -f ~/.codex/auth.json ] && echo "OK" || echo "NOT FOUND - file-based auth unavailable on host"
 
 echo -e "\n3. Container runtime running?"
-docker info &>/dev/null && echo "OK" || echo "NOT RUNNING - start Docker Desktop (macOS) or sudo systemctl start docker (Linux)"
+docker info >/dev/null 2>&1 && echo "OK" || echo "NOT RUNNING - start Docker Desktop or docker service"
 
 echo -e "\n4. Container image exists?"
 echo '{}' | docker run -i --entrypoint /bin/echo nanoclaw-agent:latest "OK" 2>/dev/null || echo "MISSING - run ./container/build.sh"
 
-echo -e "\n5. Session mount path correct?"
-grep -q "/home/node/.claude" src/container-runner.ts 2>/dev/null && echo "OK" || echo "WRONG - should mount to /home/node/.claude/, not /root/.claude/"
+echo -e "\n5. Codex mount path correct?"
+grep -q "/home/node/.codex" src/container-runner.ts 2>/dev/null && echo "OK" || echo "WRONG - expected /home/node/.codex mount"
 
-echo -e "\n6. Groups directory?"
-ls -la groups/ 2>/dev/null || echo "MISSING - run setup"
+echo -e "\n6. Group session dir exists?"
+ls -la data/sessions 2>/dev/null || echo "MISSING - no session directories yet"
 
 echo -e "\n7. Recent container logs?"
 ls -t groups/*/logs/container-*.log 2>/dev/null | head -3 || echo "No container logs yet"
 
-echo -e "\n8. Session continuity working?"
-SESSIONS=$(grep "Session initialized" logs/nanoclaw.log 2>/dev/null | tail -5 | awk '{print $NF}' | sort -u | wc -l)
-[ "$SESSIONS" -le 2 ] && echo "OK (recent sessions reusing IDs)" || echo "CHECK - multiple different session IDs, may indicate resumption issues"
+echo -e "\n8. Verify summary"
+./scripts/verify.sh || true
 ```
+
+## Escalation Path
+
+If the issue is still unclear after these checks:
+1. Capture the latest `groups/{folder}/logs/container-*.log`
+2. Capture `./scripts/verify.sh`
+3. Capture the relevant `logs/nanoclaw.log` tail
+4. Check whether the failure is host runtime, credential state, MCP config, or channel registration
