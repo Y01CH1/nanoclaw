@@ -58,7 +58,12 @@ describe('x integration IPC bridge', () => {
 
   it('blocks x tasks outside the main group', async () => {
     await expect(
-      handleXIpc({ type: 'x_post', requestId: 'req-1' }, 'other', false, '/tmp/data'),
+      handleXIpc(
+        { type: 'x_post', requestId: 'req-1' },
+        'other',
+        false,
+        '/tmp/data',
+      ),
     ).resolves.toBe(true);
   });
 

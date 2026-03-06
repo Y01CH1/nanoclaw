@@ -385,7 +385,14 @@ export async function processTaskIpc(
       break;
 
     default:
-      if (!(await handleXIpc(data as Record<string, unknown>, sourceGroup, isMain, DATA_DIR))) {
+      if (
+        !(await handleXIpc(
+          data as Record<string, unknown>,
+          sourceGroup,
+          isMain,
+          DATA_DIR,
+        ))
+      ) {
         logger.warn({ type: data.type }, 'Unknown IPC task type');
       }
   }

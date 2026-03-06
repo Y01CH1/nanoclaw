@@ -43,7 +43,10 @@ async function runScript(script: string, args: object): Promise<SkillResult> {
     proc.on('close', (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        resolve({ success: false, message: `Script exited with code: ${code}` });
+        resolve({
+          success: false,
+          message: `Script exited with code: ${code}`,
+        });
         return;
       }
 
