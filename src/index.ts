@@ -47,7 +47,10 @@ import {
   loadSenderAllowlist,
   shouldDropMessage,
 } from './sender-allowlist.js';
-import { buildNoChannelsConnectedMessage } from './startup-guidance.js';
+import {
+  buildNoChannelsConnectedMessage,
+  buildRuntimeUnavailableMessage,
+} from './startup-guidance.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
@@ -462,7 +465,16 @@ function ensureContainerSystemRunning(): void {
 }
 
 async function main(): Promise<void> {
-  ensureContainerSystemRunning();
+  try {
+    ensureContainerSystemRunning();
+  } catch (err) {
+    const runtimeError = err instanceof Error ? err.message : String(err);
+    logger.fatal(
+      { err },
+      buildRuntimeUnavailableMessage(runtimeError),
+    );
+    process.exit(1);
+  }
   initDatabase();
   logger.info('Database initialized');
   loadState();
