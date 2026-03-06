@@ -88,6 +88,50 @@ const MANUAL_CHANNEL_HELP: Record<Exclude<ChannelName, 'whatsapp'>, string> = {
     'Gmail is configured as an optional integration, not as a primary chat. The guided flow will ask for Google OAuth credentials and start the browser authorization flow.',
 };
 
+const CHANNEL_CREATION_GUIDES: Record<
+  Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+  string[]
+> = {
+  telegram: [
+    'Create a Telegram bot with @BotFather: /newbot, choose a bot name, then choose a username ending in "bot".',
+    'Copy the bot token that BotFather returns.',
+    'If you plan to use groups, turn off Group Privacy in BotFather so the bot can see normal group messages.',
+  ],
+  slack: [
+    'Create a Slack app at api.slack.com/apps.',
+    'Enable Socket Mode and generate an App Token (xapp-...).',
+    'Add bot scopes: chat:write, channels:history, groups:history, im:history, channels:read, groups:read, users:read.',
+    'Subscribe to message.channels, message.groups, and message.im events, then install the app and copy the Bot Token (xoxb-...).',
+  ],
+  discord: [
+    'Create an application in the Discord Developer Portal and add a bot user.',
+    'Reset the bot token and copy it immediately.',
+    'Enable Message Content Intent under the Bot settings.',
+    'Use OAuth2 > URL Generator with the bot scope and invite the bot to your server.',
+  ],
+};
+
+const CHANNEL_REGISTRATION_GUIDES: Record<
+  Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+  string[]
+> = {
+  telegram: [
+    'Open the bot chat or target group in Telegram.',
+    'Send /chatid and copy the returned chat ID.',
+    'Use the raw numeric value here; NanoClaw will normalize it to tg:<id>.',
+  ],
+  slack: [
+    'Add the bot to the target Slack channel first.',
+    'Copy the channel link or inspect the Slack URL and extract the C... channel ID.',
+    'Use the raw channel ID here; NanoClaw will normalize it to slack:<id>.',
+  ],
+  discord: [
+    'Enable Developer Mode in Discord.',
+    'Right-click the target text channel and choose Copy Channel ID.',
+    'Use the raw channel ID here; NanoClaw will normalize it to dc:<id>.',
+  ],
+};
+
 function getGmailConfigDir(): string {
   return path.join(os.homedir(), '.gmail-mcp');
 }
@@ -285,6 +329,18 @@ export function writeGmailOAuthKeys(
 
   const parsed = JSON.parse(source.value);
   fs.writeFileSync(targetPath, `${JSON.stringify(parsed, null, 2)}\n`);
+}
+
+export function getChannelCreationGuide(
+  channel: Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+): string[] {
+  return CHANNEL_CREATION_GUIDES[channel];
+}
+
+export function getChannelRegistrationGuide(
+  channel: Exclude<ChannelName, 'whatsapp' | 'gmail'>,
+): string[] {
+  return CHANNEL_REGISTRATION_GUIDES[channel];
 }
 
 function formatEnvValue(value: string): string {
@@ -575,6 +631,11 @@ async function configureTokenChannel(
 ): Promise<void> {
   const channel = setup.channel as Exclude<ChannelName, 'whatsapp'>;
   deps.prompter.note(`[setup] ${MANUAL_CHANNEL_HELP[channel]}`);
+  if (channel !== 'gmail') {
+    for (const line of getChannelCreationGuide(channel)) {
+      deps.prompter.note(`[setup] ${line}`);
+    }
+  }
 
   const keys = TOKEN_ENV_KEYS[channel];
   const currentEnv = readProjectEnvValues(deps.projectRoot, keys);
@@ -608,6 +669,12 @@ async function configureTokenChannel(
     ))
   ) {
     return;
+  }
+
+  if (channel !== 'gmail') {
+    for (const line of getChannelRegistrationGuide(channel)) {
+      deps.prompter.note(`[setup] ${line}`);
+    }
   }
 
   const rawJid = await promptRequiredInput(

@@ -5,6 +5,8 @@ import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  getChannelCreationGuide,
+  getChannelRegistrationGuide,
   isAppleContainerConverted,
   normalizeChannelJid,
   parseGroupList,
@@ -117,6 +119,18 @@ DOCKER: running
       ASSISTANT_NAME: 'Nova',
       TELEGRAM_BOT_TOKEN: '123:abc',
     });
+  });
+
+  it('exposes detailed token-channel creation and registration guides', () => {
+    expect(getChannelCreationGuide('telegram').join(' ')).toContain(
+      '@BotFather',
+    );
+    expect(getChannelCreationGuide('slack').join(' ')).toContain(
+      'Socket Mode',
+    );
+    expect(getChannelRegistrationGuide('discord').join(' ')).toContain(
+      'Developer Mode',
+    );
   });
 
   it('normalizes channel ids and folder slugs', () => {
