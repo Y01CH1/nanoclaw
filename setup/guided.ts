@@ -769,6 +769,100 @@ function getDockerStartCommand(): { command: string; args: string[] } {
   return { command: 'sudo', args: ['systemctl', 'start', 'docker'] };
 }
 
+function getPrivilegedCommand(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (process.getuid?.() === 0) {
+    return { command, args };
+  }
+  return { command: 'sudo', args: [command, ...args] };
+}
+
+function pickLinuxPackageManager(environmentStatus: SetupStatus):
+  | 'apt-get'
+  | 'dnf'
+  | 'yum'
+  | null {
+  if (environmentStatus.fields.APT_GET === 'installed') return 'apt-get';
+  if (environmentStatus.fields.DNF === 'installed') return 'dnf';
+  if (environmentStatus.fields.YUM === 'installed') return 'yum';
+  return null;
+}
+
+function getHomebrewInstallCommand(): { command: string; args: string[] } {
+  return {
+    command: 'sh',
+    args: [
+      '-lc',
+      'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"',
+    ],
+  };
+}
+
+function getNodeInstallCommand(
+  environmentStatus: SetupStatus,
+): { command: string; args: string[] } {
+  if (environmentStatus.fields.PLATFORM === 'macos') {
+    return { command: 'brew', args: ['install', 'node'] };
+  }
+
+  const packageManager = pickLinuxPackageManager(environmentStatus);
+  if (packageManager === 'apt-get') {
+    return getPrivilegedCommand('apt-get', ['install', '-y', 'nodejs', 'npm']);
+  }
+  if (packageManager === 'dnf') {
+    return getPrivilegedCommand('dnf', ['install', '-y', 'nodejs', 'npm']);
+  }
+  if (packageManager === 'yum') {
+    return getPrivilegedCommand('yum', ['install', '-y', 'nodejs', 'npm']);
+  }
+
+  throw new Error(
+    'No supported package manager available to install Node.js and npm.',
+  );
+}
+
+function getBuildToolsInstallCommand(
+  environmentStatus: SetupStatus,
+): { command: string; args: string[] } {
+  if (environmentStatus.fields.PLATFORM === 'macos') {
+    return { command: 'xcode-select', args: ['--install'] };
+  }
+
+  const packageManager = pickLinuxPackageManager(environmentStatus);
+  if (packageManager === 'apt-get') {
+    return getPrivilegedCommand('apt-get', [
+      'install',
+      '-y',
+      'build-essential',
+      'python3',
+    ]);
+  }
+  if (packageManager === 'dnf') {
+    return getPrivilegedCommand('dnf', [
+      'install',
+      '-y',
+      'gcc',
+      'gcc-c++',
+      'make',
+      'python3',
+    ]);
+  }
+  if (packageManager === 'yum') {
+    return getPrivilegedCommand('yum', [
+      'install',
+      '-y',
+      'gcc',
+      'gcc-c++',
+      'make',
+      'python3',
+    ]);
+  }
+
+  throw new Error('No supported package manager available to install build tools.');
+}
+
 function getDockerInstallCommand(
   platform: string,
 ): { command: string; args: string[] } {
@@ -1171,6 +1265,79 @@ async function installRuntimeIfMissing(
   return environmentStatus;
 }
 
+async function installSystemDependenciesIfMissing(
+  deps: GuidedDeps,
+  environmentStatus: SetupStatus,
+): Promise<SetupStatus> {
+  let current = environmentStatus;
+
+  const needsHomebrew =
+    current.fields.PLATFORM === 'macos' &&
+    current.fields.HOMEBREW !== 'installed' &&
+    (
+      current.fields.NODE === 'not_found' ||
+      current.fields.NPM === 'not_found' ||
+      current.fields.DOCKER === 'not_found' ||
+      current.fields.APPLE_CONTAINER === 'not_found'
+    );
+  if (needsHomebrew) {
+    deps.prompter.note('[setup] Homebrew is missing. Installing it now.');
+    const install = getHomebrewInstallCommand();
+    const result = await deps.runCommand(install.command, install.args);
+    if (result.code !== 0) {
+      throw new Error(
+        `Homebrew install failed: ${result.stderr || result.stdout}`,
+      );
+    }
+    current = await runSetupStep(deps, 'environment');
+    if (current.fields.HOMEBREW !== 'installed') {
+      throw new Error('Homebrew is still missing after the install attempt');
+    }
+  }
+
+  if (current.fields.BUILD_TOOLS === 'not_found') {
+    deps.prompter.note('[setup] Required build tools are missing. Installing them now.');
+    const install = getBuildToolsInstallCommand(current);
+    const result = await deps.runCommand(install.command, install.args);
+    if (result.code !== 0) {
+      throw new Error(
+        `Build tools install failed: ${result.stderr || result.stdout}`,
+      );
+    }
+    current = await runSetupStep(deps, 'environment');
+    if (current.fields.BUILD_TOOLS !== 'ready') {
+      throw new Error(
+        'Build tools are still unavailable after the install attempt',
+      );
+    }
+  }
+
+  if (
+    current.fields.NODE === 'not_found' ||
+    current.fields.NPM === 'not_found'
+  ) {
+    deps.prompter.note('[setup] Node.js or npm is missing. Installing them now.');
+    const install = getNodeInstallCommand(current);
+    const result = await deps.runCommand(install.command, install.args);
+    if (result.code !== 0) {
+      throw new Error(
+        `Node.js install failed: ${result.stderr || result.stdout}`,
+      );
+    }
+    current = await runSetupStep(deps, 'environment');
+    if (
+      current.fields.NODE !== 'installed' ||
+      current.fields.NPM !== 'installed'
+    ) {
+      throw new Error(
+        'Node.js or npm is still missing after the install attempt',
+      );
+    }
+  }
+
+  return current;
+}
+
 async function ensureRuntimeReady(
   deps: GuidedDeps,
   environmentStatus: SetupStatus,
@@ -1345,6 +1512,10 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
   deps.prompter.note('[setup] Starting guided NanoClaw setup');
 
   let environmentStatus = await runSetupStep(deps, 'environment');
+  environmentStatus = await installSystemDependenciesIfMissing(
+    deps,
+    environmentStatus,
+  );
   const runtime = await selectRuntime(deps, environmentStatus);
   environmentStatus = await installRuntimeIfMissing(
     deps,
