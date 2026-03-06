@@ -84,7 +84,7 @@ Legacy skills to script mapping:
 ## What It Supports
 
 - **Multi-channel messaging** - Talk to your assistant from WhatsApp, Telegram, Discord, Slack, or Gmail. `./scripts/setup.sh` can install and configure WhatsApp, Telegram, Slack, Discord, and optional Gmail integration for you; manual skills still work when you want explicit control.
-- **Isolated group context** - Each group has its own `CLAUDE.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it.
+- **Isolated group context** - Each group has its own `AGENTS.md` memory, isolated filesystem, and runs in its own container sandbox with only that filesystem mounted to it.
 - **Main channel** - Your private channel (self-chat) for admin control; every group is completely isolated
 - **Scheduled tasks** - Recurring jobs that run the configured backend and can message you back
 - **Web access** - Search and fetch content from the Web
@@ -166,7 +166,7 @@ Key files:
 - `src/container-runner.ts` - Spawns streaming agent containers
 - `src/task-scheduler.ts` - Runs scheduled tasks
 - `src/db.ts` - SQLite operations (messages, groups, sessions, state)
-- `groups/*/CLAUDE.md` - Per-group memory instructions
+- `groups/*/AGENTS.md` - Per-group memory instructions
 
 ## FAQ
 

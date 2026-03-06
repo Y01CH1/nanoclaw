@@ -385,7 +385,7 @@ function clearStaleAgentRunnerCopies(projectRoot: string): void {
 }
 
 function ensureMainGroupEmailGuidance(projectRoot: string): void {
-  const guidePath = path.join(projectRoot, 'groups', 'main', 'CLAUDE.md');
+  const guidePath = path.join(projectRoot, 'groups', 'main', 'AGENTS.md');
   let content = '';
   if (fs.existsSync(guidePath)) {
     content = fs.readFileSync(guidePath, 'utf-8');

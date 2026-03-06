@@ -800,7 +800,7 @@ STATUS: success
     const projectRoot = createTempProject();
     const fakeHome = path.join(projectRoot, 'home');
     writeProjectFile(projectRoot, '.env.example', 'ASSISTANT_NAME=Andy\n');
-    writeProjectFile(projectRoot, 'groups/main/CLAUDE.md', '## Formatting\n');
+    writeProjectFile(projectRoot, 'groups/main/AGENTS.md', '## Formatting\n');
     writeProjectFile(projectRoot, 'data/sessions/main/agent-runner-src/index.ts', '// stale');
     const oauthSource = path.join(projectRoot, 'gmail-oauth.json');
     fs.writeFileSync(oauthSource, '{"installed":{"client_id":"abc"}}');
@@ -907,7 +907,7 @@ STATUS: success
       true,
     );
     expect(
-      fs.readFileSync(path.join(projectRoot, 'groups/main/CLAUDE.md'), 'utf-8'),
+      fs.readFileSync(path.join(projectRoot, 'groups/main/AGENTS.md'), 'utf-8'),
     ).toContain('## Email Notifications');
     expect(
       fs.existsSync(path.join(projectRoot, 'data/sessions/main/agent-runner-src')),
