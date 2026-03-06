@@ -481,6 +481,31 @@ function getDockerStartCommand(): { command: string; args: string[] } {
   return { command: 'sudo', args: ['systemctl', 'start', 'docker'] };
 }
 
+function getDockerInstallCommand(
+  platform: string,
+): { command: string; args: string[] } {
+  if (platform === 'macos') {
+    return { command: 'brew', args: ['install', '--cask', 'docker'] };
+  }
+  if (process.getuid?.() === 0) {
+    return {
+      command: 'sh',
+      args: ['-lc', 'curl -fsSL https://get.docker.com | sh'],
+    };
+  }
+  return {
+    command: 'sudo',
+    args: ['sh', '-lc', 'curl -fsSL https://get.docker.com | sh'],
+  };
+}
+
+function getAppleContainerInstallCommand(): {
+  command: string;
+  args: string[];
+} {
+  return { command: 'brew', args: ['install', '--cask', 'container'] };
+}
+
 async function runSetupStep(
   deps: GuidedDeps,
   step: string,
@@ -783,6 +808,15 @@ async function selectRuntime(
     return choice === 'Apple Container' ? 'apple-container' : 'docker';
   }
 
+  if (!hasApple && !hasDocker) {
+    const choice = await deps.prompter.select(
+      'No container runtime is installed. Which one should NanoClaw install?',
+      ['Docker', 'Apple Container'],
+      0,
+    );
+    return choice === 'Apple Container' ? 'apple-container' : 'docker';
+  }
+
   const fallback = resolveRuntime(environmentStatus);
   if (!fallback) {
     throw new Error(
@@ -790,6 +824,52 @@ async function selectRuntime(
     );
   }
   return fallback as RuntimeChoice;
+}
+
+async function installRuntimeIfMissing(
+  deps: GuidedDeps,
+  environmentStatus: SetupStatus,
+  runtime: RuntimeChoice,
+): Promise<SetupStatus> {
+  if (
+    runtime === 'docker' &&
+    environmentStatus.fields.DOCKER === 'not_found'
+  ) {
+    deps.prompter.note('[setup] Docker is missing. Installing it now.');
+    const install = getDockerInstallCommand(environmentStatus.fields.PLATFORM);
+    const result = await deps.runCommand(install.command, install.args);
+    if (result.code !== 0) {
+      throw new Error(`Docker install failed: ${result.stderr || result.stdout}`);
+    }
+    const refreshed = await runSetupStep(deps, 'environment');
+    if (refreshed.fields.DOCKER === 'not_found') {
+      throw new Error('Docker is still missing after the install attempt');
+    }
+    return refreshed;
+  }
+
+  if (
+    runtime === 'apple-container' &&
+    environmentStatus.fields.APPLE_CONTAINER === 'not_found'
+  ) {
+    deps.prompter.note('[setup] Apple Container is missing. Installing it now.');
+    const install = getAppleContainerInstallCommand();
+    const result = await deps.runCommand(install.command, install.args);
+    if (result.code !== 0) {
+      throw new Error(
+        `Apple Container install failed: ${result.stderr || result.stdout}`,
+      );
+    }
+    const refreshed = await runSetupStep(deps, 'environment');
+    if (refreshed.fields.APPLE_CONTAINER === 'not_found') {
+      throw new Error(
+        'Apple Container is still missing after the install attempt',
+      );
+    }
+    return refreshed;
+  }
+
+  return environmentStatus;
 }
 
 async function ensureRuntimeReady(
@@ -955,6 +1035,11 @@ export async function runGuidedSetup(deps: GuidedDeps): Promise<void> {
 
   let environmentStatus = await runSetupStep(deps, 'environment');
   const runtime = await selectRuntime(deps, environmentStatus);
+  environmentStatus = await installRuntimeIfMissing(
+    deps,
+    environmentStatus,
+    runtime,
+  );
   environmentStatus = await ensureRuntimeReady(deps, environmentStatus, runtime);
 
   if (
