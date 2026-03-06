@@ -19,13 +19,22 @@ import {
 import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
-import { CONTAINER_RUNTIME_BIN, readonlyMountArgs, stopContainer } from './container-runtime.js';
+import {
+  CONTAINER_RUNTIME_BIN,
+  readonlyMountArgs,
+  stopContainer,
+} from './container-runtime.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const SEED_LOCK_FILE_NAME = '.seed.lock';
+const SEED_LOCK_STALE_MS = 30_000;
+const SEED_LOCK_RETRY_COUNT = 10;
+const SEED_LOCK_RETRY_MS = 100;
+const SLEEP_BUF = new Int32Array(new SharedArrayBuffer(4));
 
 export interface ContainerInput {
   prompt: string;
@@ -39,11 +48,25 @@ export interface ContainerInput {
 }
 
 export interface ContainerOutput {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'partial';
   result: string | null;
-  newSessionId?: string;
+  newSessionId?: string | null;
+  message?: string;
+  errors?: string[];
+  warnings?: Array<{
+    code: string;
+    message?: string;
+    meta?: Record<string, string>;
+  }>;
+  // Deprecated: kept for backwards compatibility with legacy consumers
   error?: string;
 }
+
+type CodexCredentialSource =
+  | 'codex_key'
+  | 'openai_key'
+  | 'codex_auth_file'
+  | 'none';
 
 interface VolumeMount {
   hostPath: string;
@@ -62,7 +85,7 @@ function buildVolumeMounts(
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
+    // (group folder, IPC, .codex/) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
     // (src/, dist/, package.json, etc.) which would bypass the sandbox
     // entirely on next restart.
@@ -71,6 +94,17 @@ function buildVolumeMounts(
       containerPath: '/workspace/project',
       readonly: true,
     });
+
+    // Shadow .env so the agent cannot read secrets from the mounted project root.
+    // Secrets are passed via stdin instead (see readSecrets()).
+    const envFile = path.join(projectRoot, '.env');
+    if (fs.existsSync(envFile)) {
+      mounts.push({
+        hostPath: '/dev/null',
+        containerPath: '/workspace/project/.env',
+        readonly: true,
+      });
+    }
 
     // Main also gets its group folder as the working directory
     mounts.push({
@@ -98,46 +132,18 @@ function buildVolumeMounts(
     }
   }
 
-  // Per-group Claude sessions directory (isolated from other groups)
-  // Each group gets their own .claude/ to prevent cross-group session access
-  const groupSessionsDir = path.join(
+  // Per-group Codex sessions directory (isolated from other groups)
+  const groupCodexSessionsDir = path.join(
     DATA_DIR,
     'sessions',
     group.folder,
-    '.claude',
+    '.codex',
   );
-  fs.mkdirSync(groupSessionsDir, { recursive: true });
-  const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(settingsFile, JSON.stringify({
-      env: {
-        // Enable agent swarms (subagent orchestration)
-        // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
-        CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-        // Load CLAUDE.md from additional mounted directories
-        // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
-        CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-        // Enable Claude's memory feature (persists user preferences between sessions)
-        // https://code.claude.com/docs/en/memory#manage-auto-memory
-        CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-      },
-    }, null, 2) + '\n');
-  }
-
-  // Sync skills from container/skills/ into each group's .agents/skills/
-  const skillsSrc = path.join(process.cwd(), 'container', 'skills');
-  const skillsDst = path.join(groupSessionsDir, 'skills');
-  if (fs.existsSync(skillsSrc)) {
-    for (const skillDir of fs.readdirSync(skillsSrc)) {
-      const srcDir = path.join(skillsSrc, skillDir);
-      if (!fs.statSync(srcDir).isDirectory()) continue;
-      const dstDir = path.join(skillsDst, skillDir);
-      fs.cpSync(srcDir, dstDir, { recursive: true });
-    }
-  }
+  fs.mkdirSync(groupCodexSessionsDir, { recursive: true });
+  seedCodexAuthIfNeeded(group.folder);
   mounts.push({
-    hostPath: groupSessionsDir,
-    containerPath: '/home/node/.claude',
+    hostPath: groupCodexSessionsDir,
+    containerPath: '/home/node/.codex',
     readonly: false,
   });
 
@@ -166,10 +172,27 @@ function buildVolumeMounts(
   // Copy agent-runner source into a per-group writable location so agents
   // can customize it (add tools, change behavior) without affecting other
   // groups. Recompiled on container startup via entrypoint.sh.
-  const agentRunnerSrc = path.join(projectRoot, 'container', 'agent-runner', 'src');
-  const groupAgentRunnerDir = path.join(DATA_DIR, 'sessions', group.folder, 'agent-runner-src');
-  if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
-    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
+  const agentRunnerSrc = path.join(
+    projectRoot,
+    'container',
+    'agent-runner',
+    'src',
+  );
+  const groupAgentRunnerDir = path.join(
+    DATA_DIR,
+    'sessions',
+    group.folder,
+    'agent-runner-src',
+  );
+  if (fs.existsSync(agentRunnerSrc)) {
+    // Keep group-local customizations, but always seed newly added runner files
+    // (for example codex-wrapper.ts) into existing group directories.
+    fs.mkdirSync(groupAgentRunnerDir, { recursive: true });
+    fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
   }
   mounts.push({
     hostPath: groupAgentRunnerDir,
@@ -195,14 +218,175 @@ function buildVolumeMounts(
  * Secrets are never written to disk or mounted as files.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  return readEnvFile(['CODEX_API_KEY', 'OPENAI_API_KEY']);
 }
 
-function buildContainerArgs(mounts: VolumeMount[], containerName: string): string[] {
+function resolveCodexCredentialSource(
+  groupFolder: string,
+): CodexCredentialSource {
+  const secrets = readSecrets();
+  if (secrets.CODEX_API_KEY) return 'codex_key';
+  if (secrets.OPENAI_API_KEY) return 'openai_key';
+
+  const authPath = path.join(
+    DATA_DIR,
+    'sessions',
+    groupFolder,
+    '.codex',
+    'auth.json',
+  );
+  if (fs.existsSync(authPath)) return 'codex_auth_file';
+  return 'none';
+}
+
+function sleepMs(ms: number): void {
+  Atomics.wait(SLEEP_BUF, 0, 0, ms);
+}
+
+function acquireSeedLock(lockPath: string): number | null {
+  for (let attempt = 0; attempt <= SEED_LOCK_RETRY_COUNT; attempt += 1) {
+    try {
+      return fs.openSync(lockPath, 'wx', 0o600);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST') return null;
+
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > SEED_LOCK_STALE_MS) {
+          fs.unlinkSync(lockPath);
+          continue;
+        }
+      } catch {
+        // Lock disappeared or became unreadable between attempts.
+      }
+
+      if (attempt < SEED_LOCK_RETRY_COUNT) {
+        sleepMs(SEED_LOCK_RETRY_MS);
+      }
+    }
+  }
+
+  return null;
+}
+
+function releaseSeedLock(lockPath: string, fd: number): void {
+  try {
+    fs.closeSync(fd);
+  } catch {
+    // Ignore close errors.
+  }
+  try {
+    fs.unlinkSync(lockPath);
+  } catch {
+    // Ignore unlink errors.
+  }
+}
+
+function validateSeedSource(sourcePath: string, sourceRoot: string): boolean {
+  const sourceResolved = path.resolve(sourcePath);
+  if (
+    sourceResolved !== sourceRoot &&
+    !sourceResolved.startsWith(`${sourceRoot}${path.sep}`)
+  ) {
+    return false;
+  }
+
+  try {
+    const st = fs.lstatSync(sourceResolved);
+    return st.isFile() && !st.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function seedFileIfMissing(
+  sourcePath: string,
+  destPath: string,
+  sourceRoot: string,
+): boolean {
+  if (!validateSeedSource(sourcePath, sourceRoot)) return false;
+  if (fs.existsSync(destPath)) return false;
+
+  const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    const content = fs.readFileSync(sourcePath);
+    fs.writeFileSync(tmpPath, content, { mode: 0o600 });
+    fs.renameSync(tmpPath, destPath);
+    fs.chmodSync(destPath, 0o600);
+    return true;
+  } catch {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // Ignore tmp cleanup failures.
+    }
+    return false;
+  }
+}
+
+function seedCodexAuthIfNeeded(groupFolder: string): void {
+  const hostCodexDir = path.resolve(process.env.HOME || os.homedir(), '.codex');
+  const hostAuthPath = path.join(hostCodexDir, 'auth.json');
+  const groupCodexDir = path.join(DATA_DIR, 'sessions', groupFolder, '.codex');
+  const groupAuthPath = path.join(groupCodexDir, 'auth.json');
+
+  if (!fs.existsSync(hostAuthPath) || fs.existsSync(groupAuthPath)) return;
+
+  const lockPath = path.join(groupCodexDir, SEED_LOCK_FILE_NAME);
+  const lockFd = acquireSeedLock(lockPath);
+  if (lockFd == null) {
+    logger.warn(
+      { group: groupFolder },
+      'CODEX_AUTH_SEED_FAILED: unable to acquire seed lock',
+    );
+    return;
+  }
+
+  try {
+    if (fs.existsSync(groupAuthPath)) return;
+
+    const copiedAuth = seedFileIfMissing(
+      hostAuthPath,
+      groupAuthPath,
+      hostCodexDir,
+    );
+    if (!copiedAuth) {
+      logger.warn(
+        { group: groupFolder },
+        'CODEX_AUTH_SEED_FAILED: auth.json unavailable or invalid',
+      );
+      return;
+    }
+
+    const hostConfigPath = path.join(hostCodexDir, 'config.toml');
+    const groupConfigPath = path.join(groupCodexDir, 'config.toml');
+    if (fs.existsSync(hostConfigPath)) {
+      seedFileIfMissing(hostConfigPath, groupConfigPath, hostCodexDir);
+    }
+
+    logger.info({ group: groupFolder }, 'CODEX_AUTH_SEEDED');
+  } finally {
+    releaseSeedLock(lockPath, lockFd);
+  }
+}
+
+function buildContainerArgs(
+  mounts: VolumeMount[],
+  containerName: string,
+  input: ContainerInput,
+  secrets: Record<string, string>,
+): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+  args.push('-e', `NANOCLAW_CHAT_JID=${input.chatJid}`);
+  args.push('-e', `NANOCLAW_GROUP_FOLDER=${input.groupFolder}`);
+  args.push('-e', `NANOCLAW_IS_MAIN=${input.isMain ? '1' : '0'}`);
+  if (input.assistantName) {
+    args.push('-e', `NANOCLAW_ASSISTANT_NAME=${input.assistantName}`);
+  }
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -222,9 +406,82 @@ function buildContainerArgs(mounts: VolumeMount[], containerName: string): strin
     }
   }
 
+  for (const [key, value] of Object.entries(secrets)) {
+    args.push('-e', `${key}=${value}`);
+  }
+
   args.push(CONTAINER_IMAGE);
 
   return args;
+}
+
+function normalizeContainerOutput(raw: unknown): ContainerOutput {
+  const parsed = raw as Partial<ContainerOutput>;
+  const status =
+    parsed.status === 'success' ||
+    parsed.status === 'error' ||
+    parsed.status === 'partial'
+      ? parsed.status
+      : 'error';
+
+  const result =
+    typeof parsed.result === 'string' || parsed.result === null
+      ? parsed.result
+      : parsed.result == null
+        ? null
+        : JSON.stringify(parsed.result);
+
+  const message =
+    typeof parsed.message === 'string'
+      ? parsed.message
+      : typeof parsed.error === 'string'
+        ? parsed.error
+        : undefined;
+
+  const errors = Array.isArray(parsed.errors)
+    ? parsed.errors.map((e) => String(e))
+    : undefined;
+
+  const warnings = Array.isArray(parsed.warnings)
+    ? parsed.warnings.map((w) => ({
+        code: String((w as { code?: unknown }).code ?? ''),
+        message:
+          typeof (w as { message?: unknown }).message === 'string'
+            ? (w as { message?: string }).message
+            : undefined,
+        meta:
+          typeof (w as { meta?: unknown }).meta === 'object' &&
+          (w as { meta?: unknown }).meta
+            ? Object.fromEntries(
+                Object.entries(
+                  (w as { meta: Record<string, unknown> }).meta,
+                ).map(([k, v]) => [k, String(v)]),
+              )
+            : undefined,
+      }))
+    : undefined;
+
+  const newSessionId =
+    typeof parsed.newSessionId === 'string' || parsed.newSessionId === null
+      ? parsed.newSessionId
+      : undefined;
+
+  const normalized: ContainerOutput = {
+    status,
+    result,
+    newSessionId,
+    message,
+    errors,
+    warnings,
+    error: message,
+  };
+
+  if (normalized.status === 'error' && !normalized.message) {
+    normalized.message = 'UNKNOWN_CONTAINER_ERROR';
+    normalized.error = normalized.message;
+  }
+
+  return normalized;
 }
 
 export async function runContainerAgent(
@@ -241,7 +498,34 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const credentialSource = resolveCodexCredentialSource(group.folder);
+
+  if (credentialSource === 'none') {
+    logger.error(
+      { group: group.name, credentialSource },
+      'CODEX_CREDENTIAL_MISSING',
+    );
+    return {
+      status: 'error',
+      result: null,
+      message: 'CODEX_CREDENTIAL_MISSING',
+      error: 'CODEX_CREDENTIAL_MISSING',
+      warnings: [
+        {
+          code: 'CODEX_CREDENTIAL_MISSING',
+          meta: { group: group.folder },
+        },
+      ],
+    };
+  }
+
+  const secrets = readSecrets();
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    input,
+    secrets,
+  );
 
   logger.debug(
     {
@@ -262,6 +546,7 @@ export async function runContainerAgent(
       containerName,
       mountCount: mounts.length,
       isMain: input.isMain,
+      credentialSource,
     },
     'Spawning container agent',
   );
@@ -325,7 +610,7 @@ export async function runContainerAgent(
           parseBuffer = parseBuffer.slice(endIdx + OUTPUT_END_MARKER.length);
 
           try {
-            const parsed: ContainerOutput = JSON.parse(jsonStr);
+            const parsed = normalizeContainerOutput(JSON.parse(jsonStr));
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
@@ -376,10 +661,16 @@ export async function runContainerAgent(
 
     const killOnTimeout = () => {
       timedOut = true;
-      logger.error({ group: group.name, containerName }, 'Container timeout, stopping gracefully');
+      logger.error(
+        { group: group.name, containerName },
+        'Container timeout, stopping gracefully',
+      );
       exec(stopContainer(containerName), { timeout: 15000 }, (err) => {
         if (err) {
-          logger.warn({ group: group.name, containerName, err }, 'Graceful stop failed, force killing');
+          logger.warn(
+            { group: group.name, containerName, err },
+            'Graceful stop failed, force killing',
+          );
           container.kill('SIGKILL');
         }
       });
@@ -400,15 +691,18 @@ export async function runContainerAgent(
       if (timedOut) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const timeoutLog = path.join(logsDir, `container-${ts}.log`);
-        fs.writeFileSync(timeoutLog, [
-          `=== Container Run Log (TIMEOUT) ===`,
-          `Timestamp: ${new Date().toISOString()}`,
-          `Group: ${group.name}`,
-          `Container: ${containerName}`,
-          `Duration: ${duration}ms`,
-          `Exit Code: ${code}`,
-          `Had Streaming Output: ${hadStreamingOutput}`,
-        ].join('\n'));
+        fs.writeFileSync(
+          timeoutLog,
+          [
+            `=== Container Run Log (TIMEOUT) ===`,
+            `Timestamp: ${new Date().toISOString()}`,
+            `Group: ${group.name}`,
+            `Container: ${containerName}`,
+            `Duration: ${duration}ms`,
+            `Exit Code: ${code}`,
+            `Had Streaming Output: ${hadStreamingOutput}`,
+          ].join('\n'),
+        );
 
         // Timeout after output = idle cleanup, not failure.
         // The agent already sent its response; this is just the
@@ -436,6 +730,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Container timed out after ${configTimeout}ms`,
           error: `Container timed out after ${configTimeout}ms`,
         });
         return;
@@ -443,7 +738,8 @@ export async function runContainerAgent(
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const logFile = path.join(logsDir, `container-${timestamp}.log`);
-      const isVerbose = process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
+      const isVerbose =
+        process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
 
       const logLines = [
         `=== Container Run Log ===`,
@@ -514,6 +810,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Container exited with code ${code}: ${stderr.slice(-200)}`,
           error: `Container exited with code ${code}: ${stderr.slice(-200)}`,
         });
         return;
@@ -552,7 +849,7 @@ export async function runContainerAgent(
           jsonLine = lines[lines.length - 1];
         }
 
-        const output: ContainerOutput = JSON.parse(jsonLine);
+        const output = normalizeContainerOutput(JSON.parse(jsonLine));
 
         logger.info(
           {
@@ -579,6 +876,7 @@ export async function runContainerAgent(
         resolve({
           status: 'error',
           result: null,
+          message: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
           error: `Failed to parse container output: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
@@ -586,10 +884,14 @@ export async function runContainerAgent(
 
     container.on('error', (err) => {
       clearTimeout(timeout);
-      logger.error({ group: group.name, containerName, error: err }, 'Container spawn error');
+      logger.error(
+        { group: group.name, containerName, error: err },
+        'Container spawn error',
+      );
       resolve({
         status: 'error',
         result: null,
+        message: `Container spawn error: ${err.message}`,
         error: `Container spawn error: ${err.message}`,
       });
     });

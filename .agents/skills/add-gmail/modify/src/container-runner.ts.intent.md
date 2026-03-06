@@ -6,7 +6,7 @@ Added a volume mount for Gmail OAuth credentials (`~/.gmail-mcp/`) so the Gmail 
 ## Key sections
 
 ### buildVolumeMounts()
-- Added: Gmail credentials mount after the `.claude` sessions mount:
+- Added: Gmail credentials mount after the `.codex` sessions mount:
   ```
   const gmailDir = path.join(homeDir, '.gmail-mcp');
   if (fs.existsSync(gmailDir)) {

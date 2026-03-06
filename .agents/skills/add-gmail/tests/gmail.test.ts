@@ -11,7 +11,8 @@ describe('add-gmail skill package', () => {
 
     const content = fs.readFileSync(manifestPath, 'utf-8');
     expect(content).toContain('skill: gmail');
-    expect(content).toContain('version: 1.0.0');
+    expect(content).toContain('version: 2.0.0');
+    expect(content).toContain('core_version: 1.2.6');
     expect(content).toContain('googleapis');
   });
 
@@ -64,6 +65,9 @@ describe('add-gmail skill package', () => {
 
     const content = fs.readFileSync(crFile, 'utf-8');
     expect(content).toContain('.gmail-mcp');
+    expect(content).toContain('/home/node/.codex');
+    expect(content).not.toContain('.claude');
+    expect(content).not.toContain('CLAUDE_CODE_');
   });
 
   it('has agent-runner Gmail MCP server modification', () => {
@@ -80,6 +84,9 @@ describe('add-gmail skill package', () => {
     const content = fs.readFileSync(arFile, 'utf-8');
     expect(content).toContain('mcp__gmail__*');
     expect(content).toContain('@gongrzhe/server-gmail-autoauth-mcp');
+    expect(content).toContain("import { runWrapperFromStdin, writeOutput } from './codex-wrapper.js';");
+    expect(content).not.toContain('@anthropic-ai/claude-agent-sdk');
+    expect(content).not.toContain('preset: \'claude_code\'');
   });
 
   it('has test file for the channel', () => {
