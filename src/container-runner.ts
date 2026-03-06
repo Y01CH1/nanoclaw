@@ -62,7 +62,6 @@ export interface ContainerOutput {
   error?: string;
 }
 
-export type AgentBackend = 'codex' | 'claude';
 type CodexCredentialSource =
   | 'codex_key'
   | 'openai_key'
@@ -85,7 +84,7 @@ function buildVolumeMounts(
 
   if (isMain) {
     // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
+    // (group folder, IPC, .codex/) are mounted separately below.
     // Read-only prevents the agent from modifying host application code
     // (src/, dist/, package.json, etc.) which would bypass the sandbox
     // entirely on next restart.
@@ -132,58 +131,7 @@ function buildVolumeMounts(
     }
   }
 
-  // Per-group Claude sessions directory (isolated from other groups)
-  // Each group gets their own .claude/ to prevent cross-group session access
-  const groupSessionsDir = path.join(
-    DATA_DIR,
-    'sessions',
-    group.folder,
-    '.claude',
-  );
-  fs.mkdirSync(groupSessionsDir, { recursive: true });
-  const settingsFile = path.join(groupSessionsDir, 'settings.json');
-  if (!fs.existsSync(settingsFile)) {
-    fs.writeFileSync(
-      settingsFile,
-      JSON.stringify(
-        {
-          env: {
-            // Enable agent swarms (subagent orchestration)
-            // https://code.claude.com/docs/en/agent-teams#orchestrate-teams-of-claude-code-sessions
-            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
-            // Load CLAUDE.md from additional mounted directories
-            // https://code.claude.com/docs/en/memory#load-memory-from-additional-directories
-            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
-            // Enable Claude's memory feature (persists user preferences between sessions)
-            // https://code.claude.com/docs/en/memory#manage-auto-memory
-            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
-          },
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-  }
-
-  // Sync skills from container/skills/ into each group's .claude/skills/
-  const skillsSrc = path.join(process.cwd(), 'container', 'skills');
-  const skillsDst = path.join(groupSessionsDir, 'skills');
-  if (fs.existsSync(skillsSrc)) {
-    for (const skillDir of fs.readdirSync(skillsSrc)) {
-      const srcDir = path.join(skillsSrc, skillDir);
-      if (!fs.statSync(srcDir).isDirectory()) continue;
-      const dstDir = path.join(skillsDst, skillDir);
-      fs.cpSync(srcDir, dstDir, { recursive: true });
-    }
-  }
-  mounts.push({
-    hostPath: groupSessionsDir,
-    containerPath: '/home/node/.claude',
-    readonly: false,
-  });
-
   // Per-group Codex sessions directory (isolated from other groups)
-  // Keep .codex and .claude side-by-side during the rollback window.
   const groupCodexSessionsDir = path.join(
     DATA_DIR,
     'sessions',
@@ -259,14 +207,7 @@ function buildVolumeMounts(
  * Secrets are never written to disk or mounted as files.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile([
-    'CODEX_API_KEY',
-    'OPENAI_API_KEY',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_AUTH_TOKEN',
-  ]);
+  return readEnvFile(['CODEX_API_KEY', 'OPENAI_API_KEY']);
 }
 
 function resolveCodexCredentialSource(
@@ -419,27 +360,22 @@ function seedCodexAuthIfNeeded(groupFolder: string): void {
   }
 }
 
-function getAgentBackend(): AgentBackend {
-  const raw = process.env.AGENT_BACKEND?.trim().toLowerCase();
-  if (!raw || raw === 'codex') return 'codex';
-  if (raw === 'claude') return 'claude';
-  logger.warn(
-    { value: raw },
-    'Invalid AGENT_BACKEND value, defaulting to codex',
-  );
-  return 'codex';
-}
-
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
-  backend: AgentBackend,
+  input: ContainerInput,
+  secrets: Record<string, string>,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
-  args.push('-e', `AGENT_BACKEND=${backend}`);
+  args.push('-e', `NANOCLAW_CHAT_JID=${input.chatJid}`);
+  args.push('-e', `NANOCLAW_GROUP_FOLDER=${input.groupFolder}`);
+  args.push('-e', `NANOCLAW_IS_MAIN=${input.isMain ? '1' : '0'}`);
+  if (input.assistantName) {
+    args.push('-e', `NANOCLAW_ASSISTANT_NAME=${input.assistantName}`);
+  }
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -457,6 +393,10 @@ function buildContainerArgs(
     } else {
       args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
     }
+  }
+
+  for (const [key, value] of Object.entries(secrets)) {
+    args.push('-e', `${key}=${value}`);
   }
 
   args.push(CONTAINER_IMAGE);
@@ -547,11 +487,9 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const backend = getAgentBackend();
-  const credentialSource =
-    backend === 'codex' ? resolveCodexCredentialSource(group.folder) : 'legacy';
+  const credentialSource = resolveCodexCredentialSource(group.folder);
 
-  if (backend === 'codex' && credentialSource === 'none') {
+  if (credentialSource === 'none') {
     logger.error(
       { group: group.name, credentialSource },
       'CODEX_CREDENTIAL_MISSING',
@@ -570,7 +508,13 @@ export async function runContainerAgent(
     };
   }
 
-  const containerArgs = buildContainerArgs(mounts, containerName, backend);
+  const secrets = readSecrets();
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    input,
+    secrets,
+  );
 
   logger.debug(
     {
@@ -591,7 +535,6 @@ export async function runContainerAgent(
       containerName,
       mountCount: mounts.length,
       isMain: input.isMain,
-      backend,
       credentialSource,
     },
     'Spawning container agent',

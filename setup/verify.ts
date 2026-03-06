@@ -76,20 +76,6 @@ export function resolveCredentialStatus(
   return { status: 'missing', source: 'none' };
 }
 
-export function isCredentialStatusAllowedForBackend(
-  backend: 'codex' | 'claude',
-  status: CredentialStatus,
-): boolean {
-  if (backend === 'claude') {
-    return (
-      status === 'configured' ||
-      status === 'configured_pending_seed' ||
-      status === 'deprecated_config'
-    );
-  }
-  return status === 'configured' || status === 'configured_pending_seed';
-}
-
 function hasSafeAuthFile(filePath: string): boolean {
   try {
     const stat = fs.lstatSync(filePath);
@@ -268,14 +254,9 @@ export async function run(_args: string[]): Promise<void> {
     mountAllowlist = 'configured';
   }
 
-  // Determine overall status
-  const backend =
-    process.env.AGENT_BACKEND?.trim().toLowerCase() === 'claude'
-      ? 'claude'
-      : 'codex';
   const status =
     service === 'running' &&
-    isCredentialStatusAllowedForBackend(backend, credentials) &&
+    (credentials === 'configured' || credentials === 'configured_pending_seed') &&
     anyChannelConfigured &&
     registeredGroups > 0
       ? 'success'

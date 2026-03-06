@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   detectCredentialStatus,
-  isCredentialStatusAllowedForBackend,
   resolveCredentialStatus,
 } from './verify.js';
 
@@ -76,28 +75,5 @@ describe('resolveCredentialStatus', () => {
       status: 'deprecated_config',
       source: 'claude_code',
     });
-  });
-});
-
-describe('isCredentialStatusAllowedForBackend', () => {
-  it('disallows deprecated credentials for codex backend', () => {
-    expect(
-      isCredentialStatusAllowedForBackend('codex', 'deprecated_config'),
-    ).toBe(false);
-  });
-
-  it('allows deprecated credentials for claude backend', () => {
-    expect(
-      isCredentialStatusAllowedForBackend('claude', 'deprecated_config'),
-    ).toBe(true);
-  });
-
-  it('allows pending seed status for both backends', () => {
-    expect(
-      isCredentialStatusAllowedForBackend('codex', 'configured_pending_seed'),
-    ).toBe(true);
-    expect(
-      isCredentialStatusAllowedForBackend('claude', 'configured_pending_seed'),
-    ).toBe(true);
   });
 });
